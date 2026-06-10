@@ -24,6 +24,7 @@ FILE_BLOCK_RE = re.compile(
 )
 SUMMARY_RE = re.compile(r"SUMMARY:\s*(?P<summary>[^\n]+)")
 RUN_TOOL_RE = re.compile(r"^RUN_TOOL:\s*(?P<name>[\w.-]+)\s*(?P<args>[^\n]*)$", re.MULTILINE)
+NOTE_RE = re.compile(r"^NOTE:\s*(?P<note>[^\n]+)$", re.MULTILINE)
 
 
 @dataclass
@@ -31,6 +32,7 @@ class ParsedOutput:
     summary: str = ""
     files: dict[str, str] = field(default_factory=dict)
     tool_runs: list[tuple[str, str]] = field(default_factory=list)  # (name, args)
+    notes: list[str] = field(default_factory=list)  # NOTE: lines for NOTES.md
     problems: list[str] = field(default_factory=list)
 
 
@@ -54,6 +56,8 @@ def parse_executor_output(text: str) -> ParsedOutput:
     unfenced = FILE_BLOCK_RE.sub("", text)
     for m in RUN_TOOL_RE.finditer(unfenced):
         out.tool_runs.append((m.group("name").strip(), m.group("args").strip()))
+    for m in NOTE_RE.finditer(unfenced):
+        out.notes.append(m.group("note").strip())
 
     if not out.files and not out.tool_runs:
         out.problems.append("no FILE blocks found in model output")

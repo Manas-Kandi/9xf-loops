@@ -21,12 +21,27 @@ class LogEntry:
     validation_detail: str = ""
     errors: list[str] = field(default_factory=list)
     commit: str = ""
-    event: str = "iteration"  # iteration | startup | shutdown | violation
-    mode: str = "build"  # build | fix | review
+    event: str = "iteration"  # iteration | startup | shutdown | violation | decompose | verify | finished | revert
+    mode: str = "build"  # build | fix | review | verify_done
     stuck_detected: bool = False
+    stuck_signals: list[str] = field(default_factory=list)  # repeat | oscillation | no_writes | same_error
+    reverted_to: str = ""  # commit hash, on revert events
     regression: bool = False
     tests_ran: int = 0
     tool_runs: list[dict] = field(default_factory=list)  # {name, args, result}
+    task_id: int = 0  # which TASKS.md task this iteration targeted (0 = none/unknown)
+    tasks_done: int = 0
+    tasks_total: int = 0
+    context_files: list[str] = field(default_factory=list)  # files shown to the executor
+    notes_added: list[str] = field(default_factory=list)
+    acceptance_passed: bool | None = None  # held-out suite (None = no suite)
+    acceptance_ran: int = 0
+    critic_verdict: str = ""  # ACCEPT | REVISE | unparsed | "" (critic off/skipped)
+    critic_issues: list[str] = field(default_factory=list)
+    critic_revised: bool = False
+    candidates: list[dict] = field(default_factory=list)  # best-of-N losers + winner meta
+    chosen_candidate: int = 0
+    explore: dict = field(default_factory=dict)  # {a: {...}, b: {...}, winner} on explore events
 
 
 def now_iso() -> str:

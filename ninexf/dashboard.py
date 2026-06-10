@@ -18,6 +18,7 @@ from ninexf import GOAL_FILENAME, STOP_FILENAME
 from ninexf.config import load_config
 from ninexf.looplog import read_entries
 from ninexf.registry import read_state, registered_runs
+from ninexf.tasks import load_tasks
 
 STALE_GRACE_S = 120
 
@@ -37,6 +38,8 @@ def _run_status(state: dict, delay: float, last_iter_ok: bool | None) -> str:
     if not state:
         return "never started"
     if not state.get("running"):
+        if state.get("stopped_reason") == "goal complete":
+            return "finished"
         if last_iter_ok is False:
             return "failed"
         return "stopped"
@@ -61,6 +64,8 @@ def collect_runs() -> list[dict]:
         entries = read_entries(d)
         iters = [e for e in entries if e.get("event") == "iteration"]
         last = iters[-1] if iters else {}
+        tl = load_tasks(d)
+        tasks_done, tasks_total = tl.counts()
         runs.append({
             "dir": str(d),
             "name": d.name,
@@ -72,11 +77,16 @@ def collect_runs() -> list[dict]:
             "cap": cap,
             "mode": state.get("mode", last.get("mode", "")),
             "subtask": state.get("subtask", last.get("subtask", "")),
+            "tasks_done": tasks_done,
+            "tasks_total": tasks_total,
+            "finished": any(e.get("event") == "finished" for e in entries),
             "dots": [bool(e.get("validation_passed")) for e in iters[-40:]],
             "flags": {
                 "regressions": sum(1 for e in iters if e.get("regression")),
                 "stuck": sum(1 for e in iters if e.get("stuck_detected")),
                 "violations": sum(1 for e in entries if e.get("event") == "violation"),
+                "reverts": sum(1 for e in entries if e.get("event") == "revert"),
+                "explores": sum(1 for e in entries if e.get("event") == "explore"),
             },
             "recent": [
                 {
@@ -115,6 +125,7 @@ h1 .x{color:var(--purple)}
 .pill.stopped{background:rgba(139,148,158,.15);color:var(--dim)}
 .pill.failed{background:rgba(248,81,73,.12);color:var(--red)}
 .pill.stale{background:rgba(210,153,34,.15);color:var(--amber)}
+.pill.finished{background:rgba(63,185,80,.25);color:var(--green);border:1px solid var(--green)}
 .pill.never{background:rgba(139,148,158,.1);color:var(--dim)}
 .bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin:10px 0 6px}
 .bar i{display:block;height:100%;background:var(--blue);border-radius:3px;transition:width .5s}
@@ -166,12 +177,16 @@ async function tick(){
       </div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="meta"><span>iteration ${r.iteration} / ${r.cap}</span><span>${pct}%</span></div>
+      ${r.tasks_total ? `<div class="bar"><i style="width:${Math.round(100*r.tasks_done/r.tasks_total)}%;background:var(--green)"></i></div>
+      <div class="meta"><span>tasks ${r.tasks_done} / ${r.tasks_total}${r.finished ? ' — GOAL COMPLETE' : ''}</span><span>${Math.round(100*r.tasks_done/r.tasks_total)}%</span></div>` : ''}
       ${r.subtask ? `<div class="subtask"><span class="m">${esc(r.mode)}</span>${esc(r.subtask)}</div>` : ''}
       <div class="dots">${dots}</div>
       <div class="flags">
         <span>regressions <b>${r.flags.regressions}</b></span>
         <span>stuck <b>${r.flags.stuck}</b></span>
         <span>violations <b>${r.flags.violations}</b></span>
+        <span>reverts <b>${r.flags.reverts}</b></span>
+        <span>explores <b>${r.flags.explores}</b></span>
       </div>
       ${r.stopped_reason ? `<div class="stopreason">${esc(r.stopped_reason)}</div>` : ''}
       ${r.last_commit ? `<div class="commit">${esc(r.last_commit)}</div>` : ''}

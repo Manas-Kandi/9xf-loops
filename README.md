@@ -1,9 +1,16 @@
-# 9xf loops v0.2
+# 9xf loops v0.3
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
 its own next sub-task, writes code, validates it, and commits — with no human in
 the loop. The research artifact is the git history plus `loop_log.jsonl`.
+
+v0.3 shifts the harness from pure observation toward **goal completion**: the
+goal is decomposed into a task list, progress is tracked per task, the loop can
+recover from regressions (auto-revert) and hard-stuck states (branch-and-explore),
+and a run can FINISH — verified against held-out acceptance criteria — instead
+of only hitting the iteration cap. Every new mechanism is logged and toggleable,
+so v0.2 behavior remains reproducible as the control in A/B runs.
 
 Built per the LoopForge research PRD. Pure Python stdlib — no pip dependencies.
 
@@ -47,6 +54,60 @@ git -C ~/runs/organizer log --oneline
 7. Commit — **failed attempts are committed too**; failures are research data
 8. Append the JSONL log entry (also committed, so log and history stay in sync)
 9. Sleep, repeat
+
+## Goal completion (v0.3)
+
+The loop's state machine:
+
+```
+init ─► decompose (iter 1, 1 LLM call) ─► build ◄────────────┐
+              prev failed: ─► fix                             │
+              every review_every: ─► review                   │
+   N consec failures ─► [auto-revert to last green] ─► build  │
+   hard-stuck ─► [branch-explore, adopt winner] ─► build      │
+   all tasks [x]/[!] ─► verify_done ── any FAIL (new tasks) ──┘
+                              └── all PASS + harness green ─► FINISHED
+```
+
+- **Decomposition**: iteration 1 breaks the goal into `TASKS.md` (checkbox task
+  list) and `ACCEPTANCE.md` (observable criteria). Both are harness-managed and
+  agent-read-only. The planner names which task each step advances (`TASK Tn:`);
+  the harness marks tasks done only after a green iteration plus a YES from a
+  one-line completion check. Tasks failing `max_task_failures` times are
+  deferred (`[!]`) so the loop stops grinding.
+- **Verify-done & FINISHED**: when all tasks are resolved, the harness runs full
+  validation + the held-out acceptance suite, then asks the model for a
+  per-criterion PASS/FAIL. The model can only *block* finishing, never force it
+  — finishing requires the harness checks green too. Failures append corrective
+  tasks and the loop resumes building.
+- **Auto-revert**: after `revert_after_failures` consecutive failures the
+  working dirs are restored to the last green commit (by path checkout — git
+  history stays linear). Capped at 2 reverts to the same commit, then the
+  failing task is deferred instead.
+- **Stuck detection v2**: four signals — `repeat` (similar subtask), 
+  `oscillation` (A-B-A), `no_writes`, `same_error` (normalized error signature
+  recurring) — each logged in `stuck_signals` and answered with a
+  signal-specific re-plan nudge.
+- **Smart context**: `context_strategy: "relevance"` scores files against the
+  current subtask (mentions, recent errors, recent writes, import-graph
+  neighbors, token overlap) and fills the budget by score; over-budget files
+  keep a one-line def/class stub. A `WHAT CHANGED LAST ITERATION` git diff and
+  a persistent `NOTES.md` (agent `NOTE:` lines + harness observations,
+  FIFO-capped) round out the model's memory. `"brute"` restores v0.2 behavior.
+- **Held-out acceptance tests**: `9xf init --acceptance-tests` generates
+  `acceptance/test_acceptance.py` from the goal at init. The agent can't write
+  it and never sees its contents — only the criteria text. It gates
+  verify_done, not commits.
+- **Critic** (`critic_enabled`): a passing change's diff is reviewed before
+  commit (`VERDICT: ACCEPT|REVISE` + `ISSUE:` lines); REVISE triggers one
+  re-execution with the issues attached.
+- **Best-of-N** (`best_of_n` > 1): sample N executor candidates at varied
+  temperatures, validate each (restoring the tree in between), commit the best.
+  Defaults to fix-mode only (`best_of_mode: "fix"`) — local-model latency is real.
+- **Branch-and-explore** (`explore_enabled`): when stuck signals persist *after*
+  a revert, two genuinely different approaches are tried on git branches; the
+  winner is adopted on main by file checkout, the loser kept as
+  `explore-iN-x-rejected`. The JSONL log is written only on the main branch.
 
 ## Smarter loop core (v0.2)
 
@@ -99,13 +160,30 @@ Set in `9xf.config.json` (written at init, never modified by the agent):
   configurable via `endpoint`
 - `anthropic/<model>` — API mode for comparison runs; reads the key from the
   env var named by `api_key_env` (default `ANTHROPIC_API_KEY`)
-- `mock` — deterministic scripted backend for testing the harness itself
+- `mock` — deterministic scripted backend for testing the harness itself.
+  Scenario variants drive specific v0.3 paths: `mock/finisher` (runs to
+  FINISHED), `mock/regressor` (forces auto-revert), `mock/explorer` (forces
+  branch-and-explore)
+
+## Testing the harness
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
+End-to-end scenario tests run real loops in temp dirs against the mock
+scenarios and assert on `loop_log.jsonl` + git; unit tests cover the task-list,
+stuck-signal, relevance-scoring, and candidate/critic parsers.
 
 ## Project folder layout (per run)
 
 ```
 goal.txt              set at init, never modified
-9xf.config.json       model, delay, max iterations, budgets
+9xf.config.json       model, delay, max iterations, budgets, v0.3 toggles
+TASKS.md              harness-managed task list (agent-read-only)
+ACCEPTANCE.md         harness-managed acceptance criteria (agent-read-only)
+NOTES.md              persistent notes (agent NOTE: lines + harness events)
+acceptance/           held-out acceptance tests (agent can't write or read contents)
 loop_log.jsonl        append-only, one entry per iteration
 state.json            heartbeat written every iteration (dashboard reads this)
 STOP                  create to trigger graceful shutdown
@@ -119,18 +197,25 @@ src/  tests/  tools/  the only writable dirs for the agent
 ```
 ninexf/
   cli.py        9xf init|run|status|stop|log|watch|report
-  loop.py       the iteration loop + mode scheduler + stuck/regression detection
-  backends.py   ollama / anthropic / mock
-  prompts.py    planner meta-prompt + executor format contract + mode variants
-  parser.py     SUMMARY/FILE-block/RUN_TOOL parsing
+  loop.py       the iteration loop + state machine (decompose/build/fix/review/
+                verify_done) + revert/explore orchestration
+  tasks.py      TASKS.md + ACCEPTANCE.md (decomposition, task state, verify parsing)
+  stuck.py      multi-signal stuck detection (repeat/oscillation/no_writes/same_error)
+  relevance.py  relevance-scored context selection (mentions/errors/imports/overlap)
+  candidates.py best-of-N candidate scoring + critic verdict parsing
+  explore.py    branch-and-explore trigger logic
+  backends.py   ollama / anthropic / mock (+ mock/<scenario> variants)
+  prompts.py    planner/executor/decompose/verify/critic/acceptance prompts
+  parser.py     SUMMARY/FILE-block/RUN_TOOL/NOTE parsing
   sandbox.py    write-path containment
-  validate.py   compile check + entry-point run + unittest discovery
-  context.py    codebase snapshot + history windowing (includes regression notices)
-  gitops.py     subprocess git wrapper
+  validate.py   compile check + entry-point run + unittest + acceptance suite
+  context.py    codebase snapshot + history windowing + diff context + NOTES.md
+  gitops.py     subprocess git wrapper (commits, restore, branches, staged diff)
   looplog.py    JSONL log read/append
   config.py     9xf.config.json load/write
   tools.py      agent-created helper script discovery + execution
   dashboard.py  `9xf watch` — multi-run local dashboard (stdlib http.server)
-  report.py     `9xf report` — generates PRD §12 observation report
+  report.py     `9xf report` — generates the observation report
   registry.py   ~/.9xf/registry.json + per-run state.json heartbeats
+tests/          harness test suite (end-to-end mock scenarios + unit tests)
 ```

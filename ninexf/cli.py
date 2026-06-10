@@ -18,6 +18,42 @@ def _project_dir(args) -> Path:
     return Path(args.dir).resolve()
 
 
+def _generate_acceptance_tests(project: Path, goal: str) -> None:
+    """One init-time model call writing the held-out acceptance suite.
+    Compile-check + one retry; on failure the run degrades gracefully to
+    criteria-only verification (logged to stdout, not fatal)."""
+    import py_compile
+    from ninexf.backends import BackendError, make_backend
+    from ninexf.parser import parse_executor_output
+    from ninexf.prompts import ACCEPTANCE_TEST_SYSTEM, ACCEPTANCE_TEST_USER
+
+    backend = make_backend(load_config(project))
+    target = project / "acceptance" / "test_acceptance.py"
+    for attempt in (1, 2):
+        try:
+            raw = backend.complete(ACCEPTANCE_TEST_SYSTEM,
+                                   ACCEPTANCE_TEST_USER.format(goal=goal))
+        except BackendError as e:
+            print(f"  acceptance-test generation failed (attempt {attempt}): {e}")
+            continue
+        parsed = parse_executor_output(raw)
+        body = (parsed.files.get("acceptance/test_acceptance.py")
+                or next(iter(parsed.files.values()), ""))
+        if not body:
+            print(f"  acceptance-test generation: no file block (attempt {attempt})")
+            continue
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(body)
+        try:
+            py_compile.compile(str(target), doraise=True)
+            print(f"  acceptance tests: {target.relative_to(project)} (held out from the agent)")
+            return
+        except py_compile.PyCompileError as e:
+            print(f"  generated acceptance tests don't compile (attempt {attempt}): {e}")
+            target.unlink()
+    print("  acceptance tests skipped — verify-done will use criteria only")
+
+
 def cmd_init(args):
     project = _project_dir(args)
     project.mkdir(parents=True, exist_ok=True)
@@ -34,8 +70,11 @@ def cmd_init(args):
         "max_iterations": args.max_iterations,
         "delay_seconds": args.delay,
         "allow_network": args.allow_network or None,
+        "acceptance_tests": args.acceptance_tests or None,
     })
     (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\n")
+    if args.acceptance_tests:
+        _generate_acceptance_tests(project, args.goal.strip())
     if not (project / ".git").exists():
         init_repo(project)
     commit_all(project, "9xf init: goal and config", allow_empty=True)
@@ -74,6 +113,14 @@ def cmd_status(args):
     last_event = entries[-1]
     print(f"goal: {(project / GOAL_FILENAME).read_text().strip()}")
     print(f"iterations completed: {len(iters)}")
+    from ninexf.tasks import load_tasks
+    tl = load_tasks(project)
+    if tl.tasks:
+        done, total = tl.counts()
+        deferred = sum(1 for t in tl.tasks if t.status == "!")
+        print(f"tasks: {done}/{total} done" + (f" ({deferred} deferred)" if deferred else ""))
+    if any(e.get("event") == "finished" for e in entries):
+        print("GOAL COMPLETE — verify-done passed")
     if iters:
         last = iters[-1]
         print(f"last sub-task: {last.get('subtask')}")
@@ -108,7 +155,10 @@ def cmd_log(args):
                 " [STUCK]" if e.get("stuck_detected") else "",
                 " [REGRESSION]" if e.get("regression") else "",
             ])
-            print(f"[{e.get('iteration'):>3}] {mark} ({e.get('mode', 'build')}){flags} "
+            task = f" T{e['task_id']}" if e.get("task_id") else ""
+            progress = (f" ({e['tasks_done']}/{e['tasks_total']} tasks)"
+                        if e.get("tasks_total") else "")
+            print(f"[{e.get('iteration'):>3}] {mark} ({e.get('mode', 'build')}){task}{progress}{flags} "
                   f"{e.get('timestamp', '')}  {e.get('subtask', '')}")
             for tr in e.get("tool_runs", []):
                 print(f"       tool {tr.get('name')} {tr.get('args', '')}: {str(tr.get('result', ''))[:120]}")
@@ -154,6 +204,8 @@ def main(argv=None):
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")
     p.add_argument("--allow-network", action="store_true",
                    help="opt in to network access for validated code (off by default)")
+    p.add_argument("--acceptance-tests", action="store_true",
+                   help="generate a held-out acceptance test suite from the goal at init")
     p.add_argument("--force", action="store_true")
     add_dir(p)
     p.set_defaults(func=cmd_init)

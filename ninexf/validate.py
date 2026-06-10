@@ -136,6 +136,26 @@ def _run_tests(project_dir: Path, timeout: float, allow_network: bool) -> tuple[
     return ran, []
 
 
+def run_acceptance(project_dir: Path, timeout: float, allow_network: bool) -> tuple[bool | None, int]:
+    """Run the held-out acceptance suite (acceptance/test_*.py), if present.
+    Returns (passed, tests_ran); passed=None when there is no suite. Kept
+    separate from validate() — acceptance failing mid-build is expected; it
+    gates verify_done, not commits."""
+    if not list((project_dir / "acceptance").glob("test_*.py")):
+        return None, 0
+    init_py = project_dir / "acceptance" / "__init__.py"
+    if not init_py.exists():
+        init_py.touch()
+    rc, out = run_sandboxed(
+        project_dir,
+        [sys.executable, "-m", "unittest", "discover", "-s", "acceptance", "-t", "."],
+        timeout, allow_network,
+    )
+    m = re.search(r"Ran (\d+) tests?", out)
+    ran = int(m.group(1)) if m else 0
+    return rc == 0, ran
+
+
 def validate(
     project_dir: Path,
     written_files: list[Path],

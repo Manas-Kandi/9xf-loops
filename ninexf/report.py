@@ -13,6 +13,7 @@ from pathlib import Path
 from ninexf import GOAL_FILENAME
 from ninexf.config import load_config
 from ninexf.looplog import read_entries
+from ninexf.tasks import load_tasks
 
 WINDOW = 5  # iterations per pass-rate window
 
@@ -28,7 +29,9 @@ def _duration(entries: list[dict]) -> str:
         return "n/a"
 
 
-def _verdict(rates: list[float]) -> str:
+def _verdict(rates: list[float], finished: bool = False) -> str:
+    if finished:
+        return "FINISHED — verify-done passed (harness validation green + all acceptance criteria)"
     if not rates:
         return "no data"
     if len(rates) == 1:
@@ -66,9 +69,10 @@ def generate_report(project_dir: Path) -> Path:
     violations = [e for e in entries if e.get("event") == "violation"]
     goal = (project_dir / GOAL_FILENAME).read_text().strip()
     try:
-        model = load_config(project_dir).model
+        cfg = load_config(project_dir)
+        model = cfg.model
     except FileNotFoundError:
-        model = "?"
+        cfg, model = None, "?"
 
     n = len(iters)
     passed = [e for e in iters if e.get("validation_passed")]
@@ -99,13 +103,26 @@ def generate_report(project_dir: Path) -> Path:
     })
     tool_uses = [(e["iteration"], tr) for e in iters for tr in e.get("tool_runs", [])]
 
+    # v0.3: decomposition / verify-done / finished events + task-list state
+    revert_events = [e for e in entries if e.get("event") == "revert"]
+    explore_events = [e for e in entries if e.get("event") == "explore"]
+    signal_counts = Counter(s for e in iters for s in e.get("stuck_signals", []))
+    decompose_events = [e for e in entries if e.get("event") == "decompose"]
+    verify_events = [e for e in entries if e.get("event") == "verify"]
+    finished_events = [e for e in entries if e.get("event") == "finished"]
+    finished = bool(finished_events)
+    tl = load_tasks(project_dir)
+    tasks_done, tasks_total = tl.counts()
+    deferred = [t for t in tl.tasks if t.status == "!"]
+    task_drift = [e for e in iters if not e.get("task_id")] if tasks_total else []
+
     lines = [
         "# 9xf observation report",
         "",
         f"**Goal:** {goal}",
         f"**Model:** {model}  |  **Iterations:** {n}  |  **Wall time:** {_duration(entries)}",
         "",
-        f"## Verdict: {_verdict(rates)}",
+        f"## Verdict: {_verdict(rates, finished)}",
         "",
         f"- validation passed: {len(passed)}/{n}"
         + (f" ({len(passed)/n:.0%})" if n else ""),
@@ -115,6 +132,65 @@ def generate_report(project_dir: Path) -> Path:
         + (f" at iterations {[e['iteration'] for e in stuck]}" if stuck else ""),
         f"- containment violations: {len(violations)}",
         f"- iteration modes: " + ", ".join(f"{m}×{c}" for m, c in modes.most_common()),
+        "",
+        "## Done detection (v0.3)",
+        "",
+        f"- decomposition: " + (
+            f"{decompose_events[0].get('summary', '')}" if decompose_events
+            else "not attempted (decompose_enabled off or pre-v0.3 run)"),
+        f"- task completion: {tasks_done}/{tasks_total} done"
+        + (f", {len(deferred)} deferred ({', '.join('T' + str(t.num) for t in deferred)})"
+           if deferred else ""),
+        f"- planner task-targeting drift (iterations with no task id): "
+        + (f"{len(task_drift)}/{n}" if tasks_total else "n/a (no task list)"),
+        f"- verify-done attempts: {len(verify_events) + len(finished_events)}"
+        + (f"; failed attempts: " + "; ".join(
+            f"iter {e['iteration']} ({e.get('summary', '')})" for e in verify_events)
+           if verify_events else ""),
+        f"- finished: " + (
+            f"YES at iteration {finished_events[0]['iteration']}" if finished
+            else "no — run ended without goal completion"),
+        "",
+        "## Context selection (v0.3)",
+        "",
+        f"- strategy: {getattr(cfg, 'context_strategy', '?') if cfg else '?'}",
+        f"- most-shown files: " + (
+            ", ".join(f"`{f}`×{c}" for f, c in Counter(
+                f for e in iters for f in e.get("context_files", [])).most_common(8))
+            or "n/a (pre-v0.3 log)"),
+        f"- notes written: {sum(len(e.get('notes_added', [])) for e in iters)}",
+        "",
+        "## Verification (v0.3)",
+        "",
+        f"- acceptance suite: " + (
+            f"{sum(1 for e in iters if e.get('acceptance_passed'))} green / "
+            f"{sum(1 for e in iters if e.get('acceptance_passed') is not None)} runs"
+            if any(e.get('acceptance_passed') is not None for e in iters)
+            else "not present"),
+        f"- critic verdicts: " + (
+            ", ".join(f"{v}×{c}" for v, c in Counter(
+                e.get("critic_verdict") for e in iters if e.get("critic_verdict")).most_common())
+            or "critic off"),
+        f"- critic revisions that ended green: "
+        f"{sum(1 for e in iters if e.get('critic_revised') and e.get('validation_passed'))}"
+        f"/{sum(1 for e in iters if e.get('critic_revised'))}",
+        f"- best-of-N iterations: {sum(1 for e in iters if len(e.get('candidates', [])) > 1)}"
+        f"; non-first candidate won: "
+        f"{sum(1 for e in iters if e.get('chosen_candidate', 0) > 0)}",
+        "",
+        "## Recovery events (v0.3)",
+        "",
+        f"- auto-reverts: {len([e for e in revert_events if e.get('reverted_to')])}"
+        + ("".join(f"\n  - iter {e['iteration']}: {e.get('summary', '')}"
+                   for e in revert_events) if revert_events else ""),
+        f"- stuck-signal histogram: " + (
+            ", ".join(f"{k}×{c}" for k, c in signal_counts.most_common())
+            if signal_counts else "none fired"),
+        f"- exploration episodes: {len(explore_events)}"
+        + ("".join(f"\n  - iter {e['iteration']}: {e.get('summary', '')} "
+                   f"(A {'ok' if e.get('explore', {}).get('a', {}).get('passed') else 'failed'}, "
+                   f"B {'ok' if e.get('explore', {}).get('b', {}).get('passed') else 'failed'})"
+                   for e in explore_events) if explore_events else ""),
         "",
         "## Validation pass rate by window",
         "",
