@@ -1,7 +1,8 @@
 """Build the codebase + history context strings fed to the model each iteration.
 
-Trims to a character budget; what gets cut as the project outgrows the budget
-is one of the research questions, so trimming is logged in the string itself.
+The snapshot includes src/, tests/, and tools/ contents, trimmed to a character
+budget; what gets cut as the project outgrows the budget is one of the research
+questions, so trimming is logged in the string itself.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ from ninexf import GOAL_FILENAME, LOG_FILENAME, STOP_FILENAME
 from ninexf.looplog import read_entries
 
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules"}
-SKIP_FILES = {LOG_FILENAME, STOP_FILENAME}
+SKIP_FILES = {LOG_FILENAME, STOP_FILENAME, "REPORT.md", "state.json"}
+CONTENT_DIRS = ("src", "tests", "tools")
 
 
 def _tree(project_dir: Path) -> list[Path]:
@@ -38,7 +40,7 @@ def snapshot_codebase(project_dir: Path, char_budget: int) -> str:
     used = sum(len(l) + 1 for l in lines)
     skipped = []
     for p, r in zip(files, rels):
-        if r.parts and r.parts[0] not in ("src", "tests") and r.name != GOAL_FILENAME:
+        if r.parts and r.parts[0] not in CONTENT_DIRS and r.name != GOAL_FILENAME:
             continue
         if r.name == GOAL_FILENAME:
             continue  # goal is passed separately
@@ -67,12 +69,22 @@ def history_for_context(project_dir: Path, max_entries: int) -> str:
     lines = []
     for e in recent:
         status = "ok" if e.get("validation_passed") else "FAILED"
+        flags = []
+        if e.get("regression"):
+            flags.append("REGRESSION: this broke previously-working code")
+        if e.get("stuck_detected"):
+            flags.append("repeated a recent subtask")
+        flag_str = f" [{'; '.join(flags)}]" if flags else ""
         lines.append(
-            f"[iter {e.get('iteration')}] ({status}) subtask: {e.get('subtask', '')!r}"
-            f" — did: {e.get('summary', '')}"
+            f"[iter {e.get('iteration')}] ({e.get('mode', 'build')}, {status}){flag_str}"
+            f" subtask: {e.get('subtask', '')!r} — did: {e.get('summary', '')}"
         )
         if e.get("errors"):
             lines.append(f"    errors: {json.dumps(e['errors'])[:300]}")
+        for tr in e.get("tool_runs", []):
+            lines.append(
+                f"    tool {tr.get('name')} {tr.get('args', '')}: {tr.get('result', '')[:300]}"
+            )
     if len(entries) > max_entries:
         lines.insert(0, f"(showing last {max_entries} of {len(entries)} iterations)")
     return "\n".join(lines)

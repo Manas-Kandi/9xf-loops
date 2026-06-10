@@ -23,12 +23,14 @@ FILE_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 SUMMARY_RE = re.compile(r"SUMMARY:\s*(?P<summary>[^\n]+)")
+RUN_TOOL_RE = re.compile(r"^RUN_TOOL:\s*(?P<name>[\w.-]+)\s*(?P<args>[^\n]*)$", re.MULTILINE)
 
 
 @dataclass
 class ParsedOutput:
     summary: str = ""
     files: dict[str, str] = field(default_factory=dict)
+    tool_runs: list[tuple[str, str]] = field(default_factory=list)  # (name, args)
     problems: list[str] = field(default_factory=list)
 
 
@@ -47,7 +49,13 @@ def parse_executor_output(text: str) -> ParsedOutput:
             out.problems.append(f"duplicate FILE block for {path}; last one wins")
         out.files[path] = body + ("\n" if not body.endswith("\n") else "")
 
-    if not out.files:
+    # RUN_TOOL lines outside code fences (strip fenced regions before scanning,
+    # so tool source code mentioning RUN_TOOL doesn't trigger runs)
+    unfenced = FILE_BLOCK_RE.sub("", text)
+    for m in RUN_TOOL_RE.finditer(unfenced):
+        out.tool_runs.append((m.group("name").strip(), m.group("args").strip()))
+
+    if not out.files and not out.tool_runs:
         out.problems.append("no FILE blocks found in model output")
 
     return out

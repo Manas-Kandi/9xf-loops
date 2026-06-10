@@ -1,4 +1,4 @@
-"""Meta-prompt (sub-task generation) and execution prompt templates.
+"""Meta-prompts (sub-task generation, per iteration mode) and execution templates.
 
 Intentionally simple per the PRD: the research interest is in what the model
 produces, not in optimizing these prompts.
@@ -19,11 +19,34 @@ GOAL (the unchanging north star):
 CURRENT CODEBASE:
 {codebase}
 
+AVAILABLE TOOLS (helper scripts in tools/ that the executor can run):
+{tools}
+
 HISTORY (most recent iterations of this loop):
 {history}
-
+{mode_instructions}
 Given the goal, the current codebase, and the history of what has already been
 done, what is the single most useful next step?"""
+
+MODE_BUILD = ""
+
+MODE_FIX = """
+THIS IS A FIX ITERATION: the previous iteration FAILED validation (see the
+errors in the history above). Your next step must address that failure before
+any new feature work."""
+
+MODE_REVIEW = """
+THIS IS A REVIEW ITERATION: do not add new features. Instead, propose a step
+that reviews the existing code for bugs, errors, inconsistencies, dead code,
+or missing tests — and fixes what it finds. If the history shows the same kind
+of problem recurring, consider proposing a helper script in tools/ (e.g. a
+checker or generator) that future iterations can run."""
+
+STUCK_NUDGE = """
+WARNING: your proposed step was nearly identical to recent step(s):
+{repeats}
+You are repeating yourself. Propose a DIFFERENT next step that makes new
+progress toward the goal."""
 
 EXECUTOR_SYSTEM = """\
 You are the execution step of an autonomous coding loop. You are given a goal,
@@ -35,11 +58,15 @@ Output format — follow it EXACTLY:
 2. Then one or more file blocks. Each block is the line `FILE: <relative path>`
    followed by a fenced code block containing the COMPLETE new contents of that
    file (not a diff, not a fragment).
+3. Optionally, lines of the form `RUN_TOOL: <name> <args>` to run an existing
+   helper script from tools/ after your files are written (its output will be
+   shown to you in the next iteration's history).
 
 Rules:
-- File paths must be relative and inside `src/` or `tests/` only.
+- File paths must be relative and inside `src/`, `tests/`, or `tools/` only.
 - Rewrite whole files; partial edits are not supported.
-- Output nothing after the last code fence."""
+- Helper scripts in tools/ must have a module docstring whose first line
+  describes what the tool does."""
 
 EXECUTOR_USER = """\
 GOAL:
@@ -47,6 +74,9 @@ GOAL:
 
 CURRENT CODEBASE:
 {codebase}
+
+AVAILABLE TOOLS (runnable via RUN_TOOL):
+{tools}
 
 SUB-TASK FOR THIS ITERATION:
 {subtask}

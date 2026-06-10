@@ -1,12 +1,15 @@
 """The loop: read state -> self-generate sub-task -> execute -> validate -> commit -> log.
 
-Failed iterations are still committed (failed attempts are research data).
-Shutdown paths (STOP file, Ctrl+C, iteration cap, repeated backend failure)
-all go through the same clean-shutdown sequence: commit, log, exit.
+v0.2 additions: iteration modes (build / fix / review), stuck detection with a
+re-plan nudge, regression flagging, agent-created tool runs, and a state.json
+heartbeat for the dashboard. Failed iterations are still committed (failed
+attempts are research data). Shutdown paths (STOP file, Ctrl+C, iteration cap,
+repeated backend failure) all go through the same clean-shutdown sequence.
 """
 
 from __future__ import annotations
 
+import difflib
 import signal
 import time
 from pathlib import Path
@@ -16,13 +19,19 @@ from ninexf.backends import Backend, BackendError, make_backend
 from ninexf.config import Config
 from ninexf.context import history_for_context, snapshot_codebase
 from ninexf.gitops import commit_all, has_changes
-from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_iso
+from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_iso, read_entries
 from ninexf.parser import parse_executor_output
-from ninexf.prompts import EXECUTOR_SYSTEM, EXECUTOR_USER, PLANNER_SYSTEM, PLANNER_USER
+from ninexf.prompts import (
+    EXECUTOR_SYSTEM, EXECUTOR_USER, MODE_BUILD, MODE_FIX, MODE_REVIEW,
+    PLANNER_SYSTEM, PLANNER_USER, STUCK_NUDGE,
+)
+from ninexf.registry import write_state
 from ninexf.sandbox import ContainmentViolation, safe_write
+from ninexf.tools import run_tool, tools_for_prompt
 from ninexf.validate import validate
 
 MAX_CONSECUTIVE_BACKEND_FAILURES = 3
+STUCK_LOOKBACK = 5
 
 
 class LoopRunner:
@@ -57,6 +66,8 @@ class LoopRunner:
             iteration=iteration, timestamp=now_iso(), subtask="", summary=reason,
             event="shutdown",
         ))
+        write_state(self.project_dir, running=False, iteration=iteration,
+                    stopped_reason=reason, ts=now_iso())
         try:
             if has_changes(self.project_dir):
                 commit_all(self.project_dir, f"9xf shutdown: {reason}")
@@ -65,24 +76,67 @@ class LoopRunner:
         except Exception as e:
             print(f"[9xf] warning: shutdown commit failed: {e}")
 
+    # -- mode scheduling & stuck detection -------------------------------------
+
+    def _pick_mode(self, iteration: int) -> str:
+        prev = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
+        if prev and not prev[-1].get("validation_passed"):
+            return "fix"
+        if self.config.review_every > 0 and iteration % self.config.review_every == 0:
+            return "review"
+        return "build"
+
+    def _recent_subtasks(self) -> list[str]:
+        entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
+        return [e.get("subtask", "") for e in entries[-STUCK_LOOKBACK:] if e.get("subtask")]
+
+    def _find_repeats(self, subtask: str) -> list[str]:
+        repeats = []
+        for prior in self._recent_subtasks():
+            ratio = difflib.SequenceMatcher(None, subtask.lower(), prior.lower()).ratio()
+            if ratio > self.config.stuck_similarity:
+                repeats.append(prior)
+        return repeats
+
+    def _plan(self, mode: str, codebase: str, history: str, tools: str) -> tuple[str, bool]:
+        """Generate the sub-task; on repetition, re-ask once with a nudge.
+        Returns (subtask, stuck_detected)."""
+        mode_instructions = {"build": MODE_BUILD, "fix": MODE_FIX, "review": MODE_REVIEW}[mode]
+        base = PLANNER_USER.format(
+            goal=self.goal, codebase=codebase, history=history,
+            tools=tools, mode_instructions=mode_instructions,
+        )
+        subtask = self.backend.complete(PLANNER_SYSTEM, base).strip().splitlines()[0][:500]
+        repeats = self._find_repeats(subtask)
+        if not repeats:
+            return subtask, False
+        nudge = STUCK_NUDGE.format(repeats="\n".join(f"  - {r!r}" for r in repeats))
+        retry = self.backend.complete(PLANNER_SYSTEM, base + nudge).strip().splitlines()[0][:500]
+        # keep the retry even if still similar — one nudge only; persistence is data
+        return retry, True
+
     # -- one iteration ---------------------------------------------------------
 
     def run_iteration(self, iteration: int) -> LogEntry:
         cfg = self.config
         codebase = snapshot_codebase(self.project_dir, cfg.context_char_budget)
         history = history_for_context(self.project_dir, cfg.history_entries_in_context)
+        tools = tools_for_prompt(self.project_dir) if cfg.tools_enabled else "(tools disabled)"
+        mode = self._pick_mode(iteration)
 
-        # 1. self-generate the sub-task
-        subtask = self.backend.complete(
-            PLANNER_SYSTEM,
-            PLANNER_USER.format(goal=self.goal, codebase=codebase, history=history),
-        ).strip().splitlines()[0][:500]
-        print(f"[9xf] iter {iteration} subtask: {subtask}")
+        prev_entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
+        prev_passed = bool(prev_entries and prev_entries[-1].get("validation_passed"))
+
+        # 1. self-generate the sub-task (with one anti-repetition retry)
+        subtask, stuck = self._plan(mode, codebase, history, tools)
+        print(f"[9xf] iter {iteration} ({mode}{', stuck' if stuck else ''}) subtask: {subtask}")
+        write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
+                    subtask=subtask, ts=now_iso())
 
         # 2. execute it
         raw = self.backend.complete(
             EXECUTOR_SYSTEM,
-            EXECUTOR_USER.format(goal=self.goal, codebase=codebase, subtask=subtask),
+            EXECUTOR_USER.format(goal=self.goal, codebase=codebase, subtask=subtask, tools=tools),
         )
         parsed = parse_executor_output(raw)
 
@@ -98,17 +152,34 @@ class LoopRunner:
                     summary=f"containment violation: {v.requested!r}", event="violation",
                 ))
 
-        # 3. validate
+        # 3. run requested tools (agent-created helper scripts)
+        tool_runs = []
+        if cfg.tools_enabled:
+            for name, args in parsed.tool_runs[: cfg.max_tool_runs_per_iteration]:
+                result = run_tool(self.project_dir, name, args,
+                                  cfg.validation_timeout, cfg.allow_network)
+                tool_runs.append({"name": name, "args": args, "result": result})
+                print(f"[9xf]   tool {name} {args}: {result[:120]}")
+            dropped = len(parsed.tool_runs) - len(tool_runs)
+            if dropped > 0:
+                errors.append(f"{dropped} tool run(s) dropped (cap {cfg.max_tool_runs_per_iteration})")
+
+        # 4. validate
         if written:
-            result = validate(self.project_dir, written, cfg.validation_timeout, cfg.allow_network)
+            result = validate(self.project_dir, written, cfg.validation_timeout,
+                              cfg.allow_network, run_tests=cfg.run_tests)
             errors.extend(result.errors)
             validation_passed, validation_detail = result.passed, result.detail
+            tests_ran = result.tests_ran
         else:
-            validation_passed, validation_detail = False, "nothing written"
+            validation_passed, validation_detail, tests_ran = False, "nothing written", 0
 
-        # 4. commit (failed attempts included — research data)
-        status = "ok" if validation_passed and not errors else "failed"
-        commit_msg = f"[iter {iteration}] ({status}) {subtask}\n\n{parsed.summary}"
+        failed = not validation_passed or bool(errors)
+        regression = prev_passed and failed
+
+        # 5. commit (failed attempts included — research data)
+        status = "failed" if failed else "ok"
+        commit_msg = f"[iter {iteration}] ({mode}/{status}) {subtask}\n\n{parsed.summary}"
         commit_hash = ""
         if has_changes(self.project_dir):
             commit_hash = commit_all(self.project_dir, commit_msg)
@@ -123,8 +194,15 @@ class LoopRunner:
             validation_detail=validation_detail,
             errors=errors,
             commit=commit_hash,
+            mode=mode,
+            stuck_detected=stuck,
+            regression=regression,
+            tests_ran=tests_ran,
+            tool_runs=tool_runs,
         )
         append_entry(self.project_dir, entry)
+        write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
+                    subtask=subtask, validation_passed=validation_passed, ts=now_iso())
 
         # commit the log line itself so git history and log stay in lockstep
         if has_changes(self.project_dir):
@@ -145,6 +223,7 @@ class LoopRunner:
             summary=f"run started (model={cfg.model}, cap={cap}, delay={sleep_s}s)",
             event="startup",
         ))
+        write_state(self.project_dir, running=True, iteration=start, ts=now_iso())
         print(f"[9xf] goal: {self.goal}")
         print(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}")
 

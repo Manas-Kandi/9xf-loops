@@ -1,4 +1,4 @@
-"""Path containment: the agent may only write inside src/ and tests/.
+"""Path containment: the agent may only write inside src/, tests/, and tools/.
 
 Every write path the model produces goes through validate_write_path before
 any file is touched. Anything that resolves outside the allowed subtree is
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WRITABLE_DIRS = ("src", "tests")
+WRITABLE_DIRS = ("src", "tests", "tools")
 PROTECTED_FILES = ("goal.txt", "9xf.config.json", "loop_log.jsonl", "STOP")
 
 

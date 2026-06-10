@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "9xf-dashboard",
+      "runtimeExecutable": ".venv/bin/9xf",
+      "runtimeArgs": ["watch", "--no-browser"],
+      "port": 9119
+    }
+  ]
+}

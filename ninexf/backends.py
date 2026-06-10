@@ -94,25 +94,88 @@ class AnthropicBackend(Backend):
 
 class MockBackend(Backend):
     """Deterministic scripted backend so the loop harness can be tested end-to-end
-    without any inference. Alternates between planning and executing a tiny
-    hello-world progression keyed off the iteration breadcrumb in the prompt."""
+    without inference. The script deliberately exercises every loop feature:
+    a broken commit (-> fix mode + regression flag), a repeated subtask
+    (-> stuck nudge), tool creation + RUN_TOOL, and a unittest test file."""
+
+    def _plan(self, user: str) -> str:
+        if "You are repeating yourself" in user:
+            return "Create a helper tool tools/line_count.py that counts lines of source code."
+        if "FIX ITERATION" in user:
+            return "Fix the syntax error in src/validate_input.py."
+        if "REVIEW ITERATION" in user:
+            return "Add a unit test for main() in tests/test_main.py."
+        if "src/main.py" not in user:
+            return "Create src/main.py with a main() function that prints a greeting."
+        if "src/validate_input.py" not in user:
+            return "Add input validation in src/validate_input.py."
+        if "tools/line_count.py" not in user:
+            # deliberate repeat of the fix subtask to trigger stuck detection
+            return "Fix the syntax error in src/validate_input.py."
+        return "Improve the docstrings in src/main.py."
 
     def complete(self, system: str, user: str) -> str:
         if "single most useful next step" in user:
-            if "src/main.py" not in user:
-                return "Create src/main.py with a main() function that prints a greeting."
-            return "Add a unit test for main() in tests/test_main.py."
-        # Execution call: produce FILE blocks.
-        if "tests/test_main.py" in user:
+            return self._plan(user)
+
+        # Execution call — key off the sub-task section only (the codebase
+        # snapshot above it would otherwise match every branch).
+        _, _, user = user.partition("SUB-TASK FOR THIS ITERATION:")
+        if "Add input validation" in user:
             return (
-                "SUMMARY: Added a unit test for main().\n"
+                "SUMMARY: Added input validation (contains a deliberate syntax error).\n"
+                "FILE: src/validate_input.py\n"
+                "```python\n"
+                "def validate(value:\n"
+                "    return bool(value)\n"
+                "```\n"
+            )
+        if "Fix the syntax error" in user:
+            return (
+                "SUMMARY: Fixed the syntax error in validate_input.py.\n"
+                "FILE: src/validate_input.py\n"
+                "```python\n"
+                "def validate(value):\n"
+                "    return bool(value)\n"
+                "```\n"
+            )
+        if "tools/line_count.py" in user or "helper tool" in user:
+            return (
+                "SUMMARY: Created a line-counting helper tool and ran it.\n"
+                "FILE: tools/line_count.py\n"
+                "```python\n"
+                '"""Count lines in src/*.py files."""\n'
+                "from pathlib import Path\n\n"
+                "total = sum(len(p.read_text().splitlines()) for p in Path('src').glob('*.py'))\n"
+                "print(f'{total} lines in src/')\n"
+                "```\n"
+                "RUN_TOOL: line_count\n"
+            )
+        if "unit test" in user:
+            return (
+                "SUMMARY: Added a unittest for main().\n"
                 "FILE: tests/test_main.py\n"
                 "```python\n"
-                "from pathlib import Path\n"
-                "import subprocess, sys\n\n"
-                "def test_main_runs():\n"
-                "    out = subprocess.run([sys.executable, 'src/main.py'], capture_output=True, text=True)\n"
-                "    assert out.returncode == 0\n"
+                "import subprocess, sys, unittest\n\n"
+                "class TestMain(unittest.TestCase):\n"
+                "    def test_main_runs(self):\n"
+                "        out = subprocess.run([sys.executable, 'src/main.py'], capture_output=True)\n"
+                "        self.assertEqual(out.returncode, 0)\n\n"
+                "if __name__ == '__main__':\n"
+                "    unittest.main()\n"
+                "```\n"
+            )
+        if "docstrings" in user:
+            return (
+                "SUMMARY: Improved docstrings in main.py.\n"
+                "FILE: src/main.py\n"
+                "```python\n"
+                '"""Entry point for the greeting tool."""\n\n'
+                "def main():\n"
+                '    """Print a friendly greeting."""\n'
+                "    print('hello from 9xf')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
                 "```\n"
             )
         return (

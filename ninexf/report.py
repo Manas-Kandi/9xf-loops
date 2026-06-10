@@ -1,0 +1,164 @@
+"""`9xf report` — generate the PRD §12 written observation report (REPORT.md)
+from loop_log.jsonl + git history. The report is a researcher artifact; it is
+excluded from the agent's context (see SKIP_FILES in context.py).
+"""
+
+from __future__ import annotations
+
+import subprocess
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
+
+from ninexf import GOAL_FILENAME
+from ninexf.config import load_config
+from ninexf.looplog import read_entries
+
+WINDOW = 5  # iterations per pass-rate window
+
+
+def _duration(entries: list[dict]) -> str:
+    stamps = [e.get("timestamp") for e in entries if e.get("timestamp")]
+    if len(stamps) < 2:
+        return "n/a"
+    try:
+        delta = datetime.fromisoformat(stamps[-1]) - datetime.fromisoformat(stamps[0])
+        return str(delta).split(".")[0]
+    except ValueError:
+        return "n/a"
+
+
+def _verdict(rates: list[float]) -> str:
+    if not rates:
+        return "no data"
+    if len(rates) == 1:
+        return "too short to call — single window"
+    first, last = rates[0], rates[-1]
+    if last >= 0.8 and last >= first:
+        return "PROGRESSING — validation pass rate is high and holding/improving"
+    if last < first - 0.2:
+        return "REGRESSING — pass rate declined over the run"
+    if max(rates) - min(rates) < 0.15 and last < 0.6:
+        return "STALLED — pass rate flat and low"
+    return "MIXED — see windowed trend below"
+
+
+def _commit_table(project_dir: Path) -> str:
+    try:
+        out = subprocess.run(
+            ["git", "log", "--reverse", "--format=%h\t%s"],
+            cwd=project_dir, capture_output=True, text=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return "(git unavailable)"
+    rows = ["| commit | message |", "|---|---|"]
+    for line in out.strip().splitlines():
+        h, _, s = line.partition("\t")
+        if s.endswith("log entry"):
+            continue  # bookkeeping commits add noise here
+        rows.append(f"| `{h}` | {s.replace('|', '\\|')} |")
+    return "\n".join(rows)
+
+
+def generate_report(project_dir: Path) -> Path:
+    entries = read_entries(project_dir)
+    iters = [e for e in entries if e.get("event") == "iteration"]
+    violations = [e for e in entries if e.get("event") == "violation"]
+    goal = (project_dir / GOAL_FILENAME).read_text().strip()
+    try:
+        model = load_config(project_dir).model
+    except FileNotFoundError:
+        model = "?"
+
+    n = len(iters)
+    passed = [e for e in iters if e.get("validation_passed")]
+    failed = [e for e in iters if not e.get("validation_passed")]
+    regressions = [e for e in iters if e.get("regression")]
+    stuck = [e for e in iters if e.get("stuck_detected")]
+    syntax_fails = [
+        e for e in iters
+        if any("syntax" in str(x).lower() or "SyntaxError" in str(x) for x in e.get("errors", []))
+    ]
+    modes = Counter(e.get("mode", "build") for e in iters)
+    nothing_written = [e for e in iters if not e.get("files_written")]
+
+    windows, rates = [], []
+    for i in range(0, n, WINDOW):
+        w = iters[i:i + WINDOW]
+        rate = sum(1 for e in w if e.get("validation_passed")) / len(w)
+        rates.append(rate)
+        windows.append(f"| {w[0]['iteration']}–{w[-1]['iteration']} | {rate:.0%} |")
+
+    files = Counter()
+    for e in iters:
+        for f in e.get("files_written", []):
+            files[f] += 1
+
+    tool_creations = sorted({
+        f for e in iters for f in e.get("files_written", []) if f.startswith("tools/")
+    })
+    tool_uses = [(e["iteration"], tr) for e in iters for tr in e.get("tool_runs", [])]
+
+    lines = [
+        "# 9xf observation report",
+        "",
+        f"**Goal:** {goal}",
+        f"**Model:** {model}  |  **Iterations:** {n}  |  **Wall time:** {_duration(entries)}",
+        "",
+        f"## Verdict: {_verdict(rates)}",
+        "",
+        f"- validation passed: {len(passed)}/{n}"
+        + (f" ({len(passed)/n:.0%})" if n else ""),
+        f"- regressions (working → broken): {len(regressions)}"
+        + (f" at iterations {[e['iteration'] for e in regressions]}" if regressions else ""),
+        f"- stuck episodes (repeated subtask, nudged): {len(stuck)}"
+        + (f" at iterations {[e['iteration'] for e in stuck]}" if stuck else ""),
+        f"- containment violations: {len(violations)}",
+        f"- iteration modes: " + ", ".join(f"{m}×{c}" for m, c in modes.most_common()),
+        "",
+        "## Validation pass rate by window",
+        "",
+        f"| iterations | pass rate |",
+        "|---|---|",
+        *windows,
+        "",
+        "## PRD §11 known-limitation evidence",
+        "",
+        f"- syntactically invalid code committed: {len(syntax_fails)}/{n} iterations",
+        f"- model output unparseable / nothing written: {len(nothing_written)}/{n} iterations",
+        f"- broken code confidently committed (any validation failure): {len(failed)}/{n}",
+        f"- subtask repetition detected: {len(stuck)} time(s)",
+        "",
+        "## Self-created tools",
+        "",
+        ("- created: " + ", ".join(f"`{t}`" for t in tool_creations)) if tool_creations
+        else "- none created",
+    ]
+    for it, tr in tool_uses:
+        lines.append(f"- iter {it} ran `{tr.get('name')}` {tr.get('args', '')}: "
+                     f"{str(tr.get('result', ''))[:120]}")
+    lines += [
+        "",
+        "## Files touched (write counts)",
+        "",
+        "| file | writes |",
+        "|---|---|",
+        *[f"| `{f}` | {c} |" for f, c in files.most_common(20)],
+        "",
+        "## Commit timeline",
+        "",
+        _commit_table(project_dir),
+        "",
+        "## Failures in detail",
+        "",
+    ]
+    for e in failed:
+        errs = "; ".join(str(x) for x in e.get("errors", []))[:300]
+        lines.append(f"- iter {e['iteration']} ({e.get('mode', 'build')}): "
+                     f"{e.get('subtask', '')!r} — {errs}")
+    if not failed:
+        lines.append("- none")
+
+    out = project_dir / "REPORT.md"
+    out.write_text("\n".join(lines) + "\n")
+    return out

@@ -11,6 +11,7 @@ from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.config import load_config, write_config
 from ninexf.gitops import commit_all, init_repo
 from ninexf.looplog import read_entries
+from ninexf.registry import register_run
 
 
 def _project_dir(args) -> Path:
@@ -25,6 +26,8 @@ def cmd_init(args):
 
     (project / "src").mkdir(exist_ok=True)
     (project / "tests").mkdir(exist_ok=True)
+    (project / "tests" / "__init__.py").touch()
+    (project / "tools").mkdir(exist_ok=True)
     (project / GOAL_FILENAME).write_text(args.goal.strip() + "\n")
     write_config(project, {
         "model": args.model,
@@ -32,10 +35,11 @@ def cmd_init(args):
         "delay_seconds": args.delay,
         "allow_network": args.allow_network or None,
     })
-    (project / ".gitignore").write_text("__pycache__/\n*.pyc\n")
+    (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\n")
     if not (project / ".git").exists():
         init_repo(project)
     commit_all(project, "9xf init: goal and config", allow_empty=True)
+    register_run(project, args.goal.strip())
     print(f"initialized 9xf project in {project}")
     print(f"  goal:  {args.goal.strip()}")
     print(f"  model: {args.model or 'ollama/qwen2.5-coder:7b (default)'}")
@@ -51,6 +55,8 @@ def cmd_run(args):
         sys.exit(f"a {STOP_FILENAME} file is present — remove it before starting a new run")
 
     from ninexf.loop import LoopRunner  # late import keeps `init`/`log` fast
+    from ninexf.looplog import now_iso
+    register_run(project, (project / GOAL_FILENAME).read_text().strip(), started=now_iso())
     LoopRunner(project, config).run(max_iterations=args.max_iterations, delay=args.delay)
 
 
@@ -94,7 +100,14 @@ def cmd_log(args):
         ev = e.get("event", "iteration")
         if ev == "iteration":
             mark = "✓" if e.get("validation_passed") else "✗"
-            print(f"[{e.get('iteration'):>3}] {mark} {e.get('timestamp', '')}  {e.get('subtask', '')}")
+            flags = "".join([
+                " [STUCK]" if e.get("stuck_detected") else "",
+                " [REGRESSION]" if e.get("regression") else "",
+            ])
+            print(f"[{e.get('iteration'):>3}] {mark} ({e.get('mode', 'build')}){flags} "
+                  f"{e.get('timestamp', '')}  {e.get('subtask', '')}")
+            for tr in e.get("tool_runs", []):
+                print(f"       tool {tr.get('name')} {tr.get('args', '')}: {str(tr.get('result', ''))[:120]}")
             if e.get("summary"):
                 print(f"       did: {e['summary']}")
             if e.get("files_written"):
@@ -109,6 +122,17 @@ def cmd_log(args):
         print("\nraw JSONL:")
         for e in entries:
             print(json.dumps(e))
+
+
+def cmd_watch(args):
+    from ninexf.dashboard import serve
+    serve(port=args.port, open_browser=not args.no_browser)
+
+
+def cmd_report(args):
+    from ninexf.report import generate_report
+    path = generate_report(_project_dir(args))
+    print(f"wrote {path}")
 
 
 def main(argv=None):
@@ -148,6 +172,15 @@ def main(argv=None):
     p.add_argument("--raw", action="store_true", help="also dump raw JSONL")
     add_dir(p)
     p.set_defaults(func=cmd_log)
+
+    p = sub.add_parser("watch", help="live dashboard for all registered runs")
+    p.add_argument("--port", type=int, default=9119)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("report", help="generate REPORT.md (the written observation report)")
+    add_dir(p)
+    p.set_defaults(func=cmd_report)
 
     args = parser.parse_args(argv)
     args.func(args)

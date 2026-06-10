@@ -21,6 +21,11 @@ DEFAULTS = {
     "context_char_budget": 24000,
     "history_entries_in_context": 15,
     "api_key_env": "ANTHROPIC_API_KEY",
+    "review_every": 5,
+    "stuck_similarity": 0.85,
+    "max_tool_runs_per_iteration": 3,
+    "tools_enabled": True,
+    "run_tests": True,
 }
 
 
@@ -35,6 +40,11 @@ class Config:
     context_char_budget: int = DEFAULTS["context_char_budget"]
     history_entries_in_context: int = DEFAULTS["history_entries_in_context"]
     api_key_env: str = DEFAULTS["api_key_env"]
+    review_every: int = DEFAULTS["review_every"]
+    stuck_similarity: float = DEFAULTS["stuck_similarity"]
+    max_tool_runs_per_iteration: int = DEFAULTS["max_tool_runs_per_iteration"]
+    tools_enabled: bool = DEFAULTS["tools_enabled"]
+    run_tests: bool = DEFAULTS["run_tests"]
     extra: dict = field(default_factory=dict)
 
     @property

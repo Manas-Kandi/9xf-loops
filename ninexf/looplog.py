@@ -22,6 +22,11 @@ class LogEntry:
     errors: list[str] = field(default_factory=list)
     commit: str = ""
     event: str = "iteration"  # iteration | startup | shutdown | violation
+    mode: str = "build"  # build | fix | review
+    stuck_detected: bool = False
+    regression: bool = False
+    tests_ran: int = 0
+    tool_runs: list[dict] = field(default_factory=list)  # {name, args, result}
 
 
 def now_iso() -> str:
