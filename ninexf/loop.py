@@ -32,6 +32,7 @@ from ninexf.context import (
     notes_for_prompt, snapshot_codebase,
 )
 from ninexf.explore import count_explores, should_explore
+from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.gitops import (
     checkout_branch, commit_all, create_branch, current_branch, has_changes,
     rename_branch, restore_paths, staged_diff,
@@ -43,7 +44,7 @@ from ninexf.prompts import (
     CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_SYSTEM, DECOMPOSE_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
-    PLANNER_SYSTEM, PLANNER_USER, REVISE_NOTE, STUCK_NUDGE,
+    PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
@@ -62,6 +63,7 @@ from ninexf.validate import run_acceptance, validate
 MAX_CONSECUTIVE_BACKEND_FAILURES = 3
 MAX_REVERTS_TO_SAME_COMMIT = 2
 CRITIC_DIFF_CHARS = 6000
+REPAIR_FILES_CHARS = 12000  # how much of the broken files the repair prompt shows
 
 
 @dataclass
@@ -102,8 +104,43 @@ class LoopRunner:
             return "interrupted by Ctrl+C"
         return None
 
+    def _maybe_restore_best(self, iteration: int) -> None:
+        """keep_best: if the run ever reached a better-scoring state than the
+        one it's ending in, restore that state before shutdown. Overnight runs
+        wander; the deliverable should be the best state ever reached, not the
+        last. Skipped when the run FINISHED (that state is goal-complete)."""
+        if not self.config.keep_best or self._finished:
+            return
+        entries = read_entries(self.project_dir)
+        best, final = best_state(entries), final_state(entries)
+        if not best or not final or best.get("commit") == final.get("commit"):
+            return
+        if fitness_of(best) <= fitness_of(final):
+            return
+        target = best["commit"]
+        summary = (f"restored best state {target} (iteration {best.get('iteration')}, "
+                   f"score {fitness_of(best)}) over final state {final.get('commit')} "
+                   f"(score {fitness_of(final)})")
+        try:
+            restore_paths(self.project_dir, target, WRITABLE_DIRS)
+        except Exception as e:
+            print(f"[9xf] warning: best-state restore failed: {e}")
+            return
+        print(f"[9xf] keep_best: {summary}")
+        commit_hash = ""
+        if has_changes(self.project_dir):
+            commit_hash = commit_all(self.project_dir, f"[shutdown] {summary}")
+        append_entry(self.project_dir, LogEntry(
+            iteration=iteration, timestamp=now_iso(), subtask="", summary=summary,
+            commit=commit_hash, event="restore_best", reverted_to=target,
+        ))
+
     def _clean_shutdown(self, iteration: int, reason: str):
         print(f"[9xf] shutting down: {reason}")
+        try:
+            self._maybe_restore_best(iteration)
+        except Exception as e:
+            print(f"[9xf] warning: keep_best check failed: {e}")
         append_entry(self.project_dir, LogEntry(
             iteration=iteration, timestamp=now_iso(), subtask="", summary=reason,
             event="shutdown",
@@ -527,6 +564,42 @@ class LoopRunner:
             outcome.validation_detail = "nothing written"
         return outcome
 
+    # -- in-iteration repair (overnight) -----------------------------------------
+
+    def _repair_loop(self, iteration: int, subtask: str, executor_user: str,
+                     outcome: ExecOutcome) -> tuple[ExecOutcome, list[dict]]:
+        """Failed validation gets fixed NOW, not next iteration: re-prompt the
+        executor with the broken file contents and the exact errors, up to
+        repair_attempts times. A whole-iteration round trip (re-plan, re-snapshot)
+        costs minutes on a local model; a repair call costs seconds and targets
+        the precise failure — the highest-leverage trade of time for quality."""
+        repairs: list[dict] = []
+        attempt = 0
+        while (attempt < self.config.repair_attempts
+               and (not outcome.validation_passed or outcome.errors)):
+            attempt += 1
+            if outcome.parsed.files:
+                dump = "\n".join(f"--- {path} ---\n{body}"
+                                 for path, body in outcome.parsed.files.items())
+                dump = dump[:REPAIR_FILES_CHARS]
+            else:
+                dump = "(no parseable FILE blocks in the previous output)"
+            errors = "; ".join(str(e) for e in outcome.errors)[:1500] or "(none recorded)"
+            repair_user = executor_user + REPAIR_NOTE.format(files=dump, errors=errors)
+            new = self._execute_once(iteration, subtask, repair_user, None)
+            repairs.append({
+                "attempt": attempt,
+                "errors_before": [str(e)[:200] for e in outcome.errors][:5],
+                "passed": new.validation_passed and not new.errors,
+            })
+            print(f"[9xf]   repair {attempt}/{self.config.repair_attempts}: "
+                  f"{'ok' if repairs[-1]['passed'] else 'still failing'}"
+                  f" — {new.parsed.summary[:80]}")
+            if not new.written and not new.parsed.files:
+                break  # repair produced nothing usable; keep what we have
+            outcome = new
+        return outcome, repairs
+
     # -- one iteration ---------------------------------------------------------
 
     def run_iteration(self, iteration: int) -> LogEntry:
@@ -613,6 +686,13 @@ class LoopRunner:
             print(f"[9xf]   chose candidate {chosen} of {n}")
         else:
             outcome = self._execute_once(iteration, subtask, executor_user, None)
+
+        # in-iteration repair: a failing attempt (including a failing best-of-N
+        # winner) gets its errors fed straight back instead of waiting a full
+        # re-plan round trip
+        repairs: list[dict] = []
+        if cfg.repair_attempts > 0 and (not outcome.validation_passed or outcome.errors):
+            outcome, repairs = self._repair_loop(iteration, subtask, executor_user, outcome)
 
         # critic pass: review the diff of a *passing* change before commit
         # (a failing change already has validation feedback)
@@ -730,6 +810,7 @@ class LoopRunner:
             critic_revised=critic_revised,
             candidates=candidates_log,
             chosen_candidate=chosen,
+            repairs=repairs,
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
@@ -742,21 +823,26 @@ class LoopRunner:
 
     # -- the loop ----------------------------------------------------------------
 
-    def run(self, max_iterations: int | None = None, delay: float | None = None):
+    def run(self, max_iterations: int | None = None, delay: float | None = None,
+            hours: float | None = None):
         cfg = self.config
         cap = max_iterations if max_iterations is not None else cfg.max_iterations
         sleep_s = delay if delay is not None else cfg.delay_seconds
+        budget_h = hours if hours is not None else cfg.max_hours
+        deadline = time.monotonic() + budget_h * 3600 if budget_h and budget_h > 0 else None
         self._install_sigint()
 
         start = last_iteration_number(self.project_dir)
         append_entry(self.project_dir, LogEntry(
             iteration=start, timestamp=now_iso(), subtask="",
-            summary=f"run started (model={cfg.model}, cap={cap}, delay={sleep_s}s)",
+            summary=f"run started (model={cfg.model}, cap={cap}, delay={sleep_s}s"
+                    + (f", time budget {budget_h}h" if deadline else "") + ")",
             event="startup",
         ))
         write_state(self.project_dir, running=True, iteration=start, ts=now_iso())
         print(f"[9xf] goal: {self.goal}")
-        print(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}")
+        print(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}"
+              + (f" | time budget {budget_h}h" if deadline else ""))
 
         backend_failures = 0
         iteration = start
@@ -764,6 +850,9 @@ class LoopRunner:
             reason = self._stop_requested()
             if reason:
                 self._clean_shutdown(iteration, reason)
+                return
+            if deadline is not None and time.monotonic() >= deadline:
+                self._clean_shutdown(iteration, f"time budget reached ({budget_h}h)")
                 return
 
             iteration += 1
@@ -796,6 +885,9 @@ class LoopRunner:
                 self._clean_shutdown(iteration, reason)
                 return
             if iteration - start < cap:
-                time.sleep(sleep_s)
+                pause = sleep_s
+                if deadline is not None:
+                    pause = min(pause, max(0.0, deadline - time.monotonic()))
+                time.sleep(pause)
 
         self._clean_shutdown(iteration, f"iteration cap reached ({cap})")

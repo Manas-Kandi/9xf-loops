@@ -110,6 +110,83 @@ class TestExplorer(unittest.TestCase):
         self.assertFalse(events(entries, "corrupt-line"))
 
 
+class TestRepairer(unittest.TestCase):
+    """Overnight v0.4: a failing executor attempt is repaired in the same
+    iteration — errors fed straight back — instead of waiting for a fix mode
+    round trip the next iteration."""
+
+    def setUp(self):
+        self.project = make_run("Greeting tool", "mock/repairer")
+
+    def tearDown(self):
+        cleanup(self.project)
+
+    def test_in_iteration_repair(self):
+        entries = run_loop(self.project, max_iterations=6)
+
+        iters = iteration_entries(entries)
+        self.assertTrue(iters, "should have at least one build iteration")
+        first = iters[0]
+        self.assertEqual(len(first.get("repairs", [])), 1, first)
+        self.assertTrue(first["repairs"][0]["passed"], "repair should end green")
+        self.assertTrue(first["validation_passed"],
+                        "the iteration's final verdict is the repaired attempt")
+        # the broken first attempt never needed a fix-mode iteration
+        self.assertEqual(len(events(entries, "finished")), 1)
+
+
+class TestKeepBest(unittest.TestCase):
+    """Overnight v0.4: a run that degrades after a green state ships the best
+    state it ever reached, restored at shutdown."""
+
+    def setUp(self):
+        # repair can't save the regressor (it always re-emits broken code), so
+        # the run ends in a failing state — exactly what keep_best is for
+        self.project = make_run("Greeting tool", "mock/regressor")
+
+    def tearDown(self):
+        cleanup(self.project)
+
+    def test_best_state_restored_at_shutdown(self):
+        entries = run_loop(self.project, max_iterations=8)
+
+        restores = events(entries, "restore_best")
+        self.assertEqual(len(restores), 1, "keep_best should fire on a degraded run")
+        self.assertTrue(restores[0]["reverted_to"])
+
+        # final working tree is the green state: main.py present, broken
+        # feature.py gone
+        self.assertTrue((self.project / "src" / "main.py").exists())
+        self.assertFalse((self.project / "src" / "feature.py").exists(),
+                         "broken file should not survive shutdown")
+
+    def test_keep_best_off_preserves_final_state(self):
+        cfg_path = self.project / "9xf.config.json"
+        import json as _json
+        cfg = _json.loads(cfg_path.read_text())
+        cfg["keep_best"] = False
+        cfg_path.write_text(_json.dumps(cfg, indent=2) + "\n")
+        entries = run_loop(self.project, max_iterations=8)
+        self.assertFalse(events(entries, "restore_best"))
+
+
+class TestTimeBudget(unittest.TestCase):
+    """Overnight v0.4: a wall-clock budget ends the run cleanly."""
+
+    def test_zero_budget_stops_immediately(self):
+        project = make_run("Greeting tool", "mock/finisher",
+                           {"max_hours": 0.0000001})
+        try:
+            entries = run_loop(project, max_iterations=10)
+            shutdown = events(entries, "shutdown")
+            self.assertTrue(shutdown)
+            self.assertIn("time budget", shutdown[-1]["summary"])
+            self.assertFalse(iteration_entries(entries),
+                             "no iterations should run on an expired budget")
+        finally:
+            cleanup(project)
+
+
 class TestAcceptanceAndDefaultMock(unittest.TestCase):
     """Phase 4 acceptance generation + the v0.2 default mock still works."""
 

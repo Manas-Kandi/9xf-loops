@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
-from ninexf.config import load_config, write_config
+from ninexf.config import PRESETS, load_config, write_config
 from ninexf.gitops import commit_all, init_repo
 from ninexf.looplog import read_entries
 from ninexf.registry import register_run
@@ -71,9 +71,9 @@ def cmd_init(args):
         "delay_seconds": args.delay,
         "allow_network": args.allow_network or None,
         "acceptance_tests": args.acceptance_tests or None,
-    })
+    }, preset=args.preset)
     (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\n")
-    if args.acceptance_tests:
+    if load_config(project).acceptance_tests:  # set via flag or preset
         _generate_acceptance_tests(project, args.goal.strip())
     if not (project / ".git").exists():
         init_repo(project)
@@ -82,7 +82,10 @@ def cmd_init(args):
     print(f"initialized 9xf project in {project}")
     print(f"  goal:  {args.goal.strip()}")
     print(f"  model: {args.model or 'ollama/qwen2.5-coder:7b (default)'}")
-    print(f"run it with: 9xf run --dir {project}")
+    if args.preset:
+        print(f"  preset: {args.preset}")
+    print(f"run it with: 9xf run --dir {project}"
+          + (" --hours 8" if args.preset == "overnight" else ""))
 
 
 def cmd_run(args):
@@ -97,7 +100,8 @@ def cmd_run(args):
     from ninexf.looplog import now_iso
     register_run(project, (project / GOAL_FILENAME).read_text().strip(), started=now_iso())
     try:
-        LoopRunner(project, config).run(max_iterations=args.max_iterations, delay=args.delay)
+        LoopRunner(project, config).run(max_iterations=args.max_iterations,
+                                        delay=args.delay, hours=args.hours)
     except KeyboardInterrupt:
         print("\n[9xf] force-quit (second Ctrl+C) — current iteration abandoned")
         sys.exit(130)
@@ -162,6 +166,9 @@ def cmd_log(args):
                   f"{e.get('timestamp', '')}  {e.get('subtask', '')}")
             for tr in e.get("tool_runs", []):
                 print(f"       tool {tr.get('name')} {tr.get('args', '')}: {str(tr.get('result', ''))[:120]}")
+            for r in e.get("repairs", []):
+                print(f"       repair {r.get('attempt')}: "
+                      f"{'fixed' if r.get('passed') else 'still failing'}")
             if e.get("summary"):
                 print(f"       did: {e['summary']}")
             if e.get("files_written"):
@@ -206,6 +213,9 @@ def main(argv=None):
                    help="opt in to network access for validated code (off by default)")
     p.add_argument("--acceptance-tests", action="store_true",
                    help="generate a held-out acceptance test suite from the goal at init")
+    p.add_argument("--preset", default=None, choices=sorted(PRESETS),
+                   help="config preset; 'overnight' enables maximum search "
+                        "(best-of-N, critic, explore, repair, acceptance tests, keep-best)")
     p.add_argument("--force", action="store_true")
     add_dir(p)
     p.set_defaults(func=cmd_init)
@@ -213,6 +223,9 @@ def main(argv=None):
     p = sub.add_parser("run", help="start the loop")
     p.add_argument("--max-iterations", type=int, default=None, help="override config cap for this run")
     p.add_argument("--delay", type=float, default=None, help="override config delay for this run")
+    p.add_argument("--hours", type=float, default=None,
+                   help="wall-clock budget for this run (e.g. 8 for overnight); "
+                        "overrides the max_hours config")
     add_dir(p)
     p.set_defaults(func=cmd_run)
 

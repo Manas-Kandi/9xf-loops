@@ -43,6 +43,36 @@ DEFAULTS = {
     "explore_enabled": False,
     "explore_after_stuck": 3,
     "max_explores_per_run": 2,
+    "repair_attempts": 1,  # in-iteration fix-it-now retries after failed validation
+    "keep_best": True,  # restore the best-scoring state at shutdown if final is worse
+    "max_hours": 0,  # wall-clock budget for a run (0 = no time limit)
+    "num_ctx": 16384,  # ollama context window
+    "temperature": 0.4,  # default sampling temperature (best-of-N still varies it)
+}
+
+# Named presets applied at init (`9xf init --preset overnight`). A preset is a
+# layer between DEFAULTS and explicit CLI overrides. "overnight" trades wall
+# time for quality: maximum search (best-of-N always, critic, explore, repair),
+# held-out acceptance tests, and a long leash — the bet being that a small
+# local model plus hours of verified search approaches big-model quality.
+PRESETS = {
+    "overnight": {
+        "max_iterations": 1000,
+        "delay_seconds": 0,
+        "max_hours": 8,
+        "review_every": 4,
+        "validation_timeout": 20,
+        "best_of_n": 3,
+        "best_of_mode": "always",
+        "critic_enabled": True,
+        "explore_enabled": True,
+        "max_explores_per_run": 4,
+        "repair_attempts": 2,
+        "max_task_failures": 4,
+        "max_verify_attempts": 5,
+        "acceptance_tests": True,
+        "keep_best": True,
+    },
 }
 
 
@@ -79,6 +109,11 @@ class Config:
     explore_enabled: bool = DEFAULTS["explore_enabled"]
     explore_after_stuck: int = DEFAULTS["explore_after_stuck"]
     max_explores_per_run: int = DEFAULTS["max_explores_per_run"]
+    repair_attempts: int = DEFAULTS["repair_attempts"]
+    keep_best: bool = DEFAULTS["keep_best"]
+    max_hours: float = DEFAULTS["max_hours"]
+    num_ctx: int = DEFAULTS["num_ctx"]
+    temperature: float = DEFAULTS["temperature"]
     extra: dict = field(default_factory=dict)
 
     @property
@@ -102,8 +137,13 @@ def load_config(project_dir: Path) -> Config:
     return Config(**known, extra=extra)
 
 
-def write_config(project_dir: Path, overrides: dict | None = None) -> Path:
+def write_config(project_dir: Path, overrides: dict | None = None,
+                 preset: str | None = None) -> Path:
     data = dict(DEFAULTS)
+    if preset:
+        if preset not in PRESETS:
+            raise ValueError(f"unknown preset {preset!r} (available: {', '.join(PRESETS)})")
+        data.update(PRESETS[preset])
     if overrides:
         data.update({k: v for k, v in overrides.items() if v is not None})
     path = project_dir / CONFIG_FILENAME

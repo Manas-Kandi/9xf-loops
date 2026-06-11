@@ -21,7 +21,7 @@ class LogEntry:
     validation_detail: str = ""
     errors: list[str] = field(default_factory=list)
     commit: str = ""
-    event: str = "iteration"  # iteration | startup | shutdown | violation | decompose | verify | finished | revert
+    event: str = "iteration"  # iteration | startup | shutdown | violation | decompose | verify | finished | revert | explore | restore_best
     mode: str = "build"  # build | fix | review | verify_done
     stuck_detected: bool = False
     stuck_signals: list[str] = field(default_factory=list)  # repeat | oscillation | no_writes | same_error
@@ -42,6 +42,7 @@ class LogEntry:
     candidates: list[dict] = field(default_factory=list)  # best-of-N losers + winner meta
     chosen_candidate: int = 0
     explore: dict = field(default_factory=dict)  # {a: {...}, b: {...}, winner} on explore events
+    repairs: list[dict] = field(default_factory=list)  # in-iteration repair attempts {attempt, errors_before, passed}
 
 
 def now_iso() -> str:

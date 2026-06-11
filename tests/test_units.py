@@ -1,4 +1,5 @@
-"""Unit tests for the v0.3 modules: tasks, stuck, relevance, candidates, parser."""
+"""Unit tests for the v0.3/v0.4 modules: tasks, stuck, relevance, candidates,
+parser, fitness, config presets."""
 
 from __future__ import annotations
 
@@ -7,6 +8,8 @@ import unittest
 from pathlib import Path
 
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
+from ninexf.config import PRESETS, load_config, write_config
+from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.parser import parse_executor_output
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
@@ -115,6 +118,67 @@ class TestCandidates(unittest.TestCase):
         self.assertEqual(v, "REVISE")
         self.assertEqual(issues, ["a", "b"])
         self.assertEqual(parse_critic_output("looks good to me")[0], "unparsed")
+
+
+class TestFitness(unittest.TestCase):
+    def _e(self, commit, **kw):
+        base = {"event": "iteration", "commit": commit, "validation_passed": False,
+                "acceptance_passed": None, "tasks_done": 0, "tests_ran": 0,
+                "errors": [], "iteration": 1}
+        base.update(kw)
+        return base
+
+    def test_ordering(self):
+        # held-out acceptance dominates everything else
+        self.assertGreater(
+            fitness_of(self._e("a", acceptance_passed=True)),
+            fitness_of(self._e("b", validation_passed=True, tasks_done=5, tests_ran=20)))
+        # then validation, then task progress, then tests
+        self.assertGreater(
+            fitness_of(self._e("a", validation_passed=True)),
+            fitness_of(self._e("b", tasks_done=9)))
+        self.assertGreater(
+            fitness_of(self._e("a", validation_passed=True, tasks_done=2)),
+            fitness_of(self._e("b", validation_passed=True, tasks_done=1)))
+
+    def test_best_state_prefers_latest_tie(self):
+        entries = [
+            self._e("c1", validation_passed=True, iteration=1),
+            self._e("c2", validation_passed=True, iteration=2),
+            self._e("c3", iteration=3),
+            {"event": "shutdown", "summary": "x"},  # ignored: not scoreable
+        ]
+        self.assertEqual(best_state(entries)["commit"], "c2")
+        self.assertEqual(final_state(entries)["commit"], "c3")
+
+    def test_empty(self):
+        self.assertIsNone(best_state([]))
+        self.assertIsNone(final_state([{"event": "iteration", "commit": ""}]))
+
+
+class TestPresets(unittest.TestCase):
+    def test_overnight_preset(self):
+        d = Path(tempfile.mkdtemp())
+        write_config(d, {"model": "mock"}, preset="overnight")
+        cfg = load_config(d)
+        self.assertEqual(cfg.best_of_n, 3)
+        self.assertEqual(cfg.best_of_mode, "always")
+        self.assertTrue(cfg.critic_enabled)
+        self.assertTrue(cfg.explore_enabled)
+        self.assertEqual(cfg.repair_attempts, 2)
+        self.assertTrue(cfg.keep_best)
+        self.assertTrue(cfg.acceptance_tests)
+        self.assertEqual(cfg.max_hours, 8)
+        self.assertEqual(cfg.model, "mock", "explicit overrides beat the preset")
+
+    def test_unknown_preset_rejected(self):
+        with self.assertRaises(ValueError):
+            write_config(Path(tempfile.mkdtemp()), preset="nope")
+
+    def test_presets_only_use_known_keys(self):
+        from ninexf.config import DEFAULTS
+        for name, values in PRESETS.items():
+            self.assertTrue(set(values) <= set(DEFAULTS), name)
 
 
 class TestParserNotes(unittest.TestCase):

@@ -172,6 +172,19 @@ VALIDATION RESULT:
 
 Judge the change now (VERDICT line, then ISSUE lines only if REVISE)."""
 
+REPAIR_NOTE = """
+
+YOUR PREVIOUS ATTEMPT AT THIS SUB-TASK FAILED VALIDATION.
+
+Files you wrote (their current, broken contents):
+{files}
+
+Validation errors:
+{errors}
+
+Fix exactly these errors now. Rewrite the broken file(s) completely, changing
+as little else as possible. Same output format (SUMMARY + FILE blocks)."""
+
 REVISE_NOTE = """
 
 A REVIEWER FLAGGED PROBLEMS with your previous attempt at this sub-task:

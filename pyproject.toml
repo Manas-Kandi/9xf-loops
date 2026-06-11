@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ninexf-loops"
-version = "0.3.0"
+version = "0.4.0"
 description = "9xf loops: a research harness for autonomous, self-prompting coding loops"
 requires-python = ">=3.10"
 

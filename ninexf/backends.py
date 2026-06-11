@@ -46,6 +46,8 @@ class OllamaBackend(Backend):
     def __init__(self, config: Config):
         self.model = config.model_name
         self.endpoint = config.endpoint.rstrip("/")
+        self.num_ctx = config.num_ctx
+        self.default_temperature = config.temperature
 
     def complete(self, system: str, user: str, temperature: float | None = None) -> str:
         data = _post_json(
@@ -57,8 +59,9 @@ class OllamaBackend(Backend):
                     {"role": "user", "content": user},
                 ],
                 "stream": False,
-                "options": {"temperature": temperature if temperature is not None else 0.4,
-                            "num_ctx": 16384},
+                "options": {"temperature": temperature if temperature is not None
+                            else self.default_temperature,
+                            "num_ctx": self.num_ctx},
             },
             headers={},
         )
@@ -218,6 +221,59 @@ class MockBackend(Backend):
             "```\n"
         )
 
+    # -- repairer scenario: every first executor attempt is broken; the
+    # in-iteration repair prompt fixes it. Exercises the repair loop end-to-end.
+
+    def _repairer(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py with a main() function that prints a greeting.\n"
+                "TASK: Add a unit test for main() in tests/test_main.py.\n"
+                "CRITERION: running `python src/main.py` exits 0\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — the task is complete."
+        if "one PASS/FAIL line" in user:
+            return "PASS: C1\n"
+        if "single most useful next step" in user:
+            if "T1 (DONE)" not in user:
+                return "TASK T1: Create src/main.py with a main() function that prints a greeting."
+            return "TASK T2: Add a unit test for main() in tests/test_main.py."
+        _, _, sub = user.partition("SUB-TASK FOR THIS ITERATION:")
+        if "FAILED VALIDATION" in sub:
+            return (
+                "SUMMARY: Fixed the syntax error in main.py.\n"
+                "FILE: src/main.py\n"
+                "```python\n"
+                "def main():\n"
+                "    print('hello from 9xf')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+                "```\n"
+            )
+        if "unit test" in sub:
+            return (
+                "SUMMARY: Added a unittest for main().\n"
+                "FILE: tests/test_main.py\n"
+                "```python\n"
+                "import subprocess, sys, unittest\n\n"
+                "class TestMain(unittest.TestCase):\n"
+                "    def test_main_runs(self):\n"
+                "        out = subprocess.run([sys.executable, 'src/main.py'], capture_output=True)\n"
+                "        self.assertEqual(out.returncode, 0)\n\n"
+                "if __name__ == '__main__':\n"
+                "    unittest.main()\n"
+                "```\n"
+            )
+        return (
+            "SUMMARY: Created src/main.py (broken on the first try).\n"
+            "FILE: src/main.py\n"
+            "```python\n"
+            "def main(:\n"
+            "    print('hello from 9xf')\n"
+            "```\n"
+        )
+
     # -- explorer scenario: regressor behavior until the harness triggers
     # branch-and-explore; approach A stays broken, approach B works.
 
@@ -289,6 +345,8 @@ class MockBackend(Backend):
             return self._regressor(user)
         if self.scenario == "explorer":
             return self._explorer(user)
+        if self.scenario == "repairer":
+            return self._repairer(user)
         # v0.3 harness prompts (decompose / task-check / verify-done)
         if "Break this goal down" in user:
             return (

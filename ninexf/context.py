@@ -149,7 +149,7 @@ def notes_for_prompt(project_dir: Path) -> str:
     return path.read_text().strip()
 
 
-HISTORY_EVENTS = {"iteration", "decompose", "verify", "revert"}
+HISTORY_EVENTS = {"iteration", "decompose", "verify", "revert", "restore_best"}
 
 
 def history_for_context(project_dir: Path, max_entries: int) -> str:
@@ -166,6 +166,9 @@ def history_for_context(project_dir: Path, max_entries: int) -> str:
                          f"{e.get('summary', '')}{note}")
             continue
         status = "ok" if e.get("validation_passed") else "FAILED"
+        if e.get("acceptance_passed") is not None:
+            status += (", acceptance ok" if e.get("acceptance_passed")
+                       else ", acceptance FAILING")
         flags = []
         if e.get("regression"):
             flags.append("REGRESSION: this broke previously-working code")

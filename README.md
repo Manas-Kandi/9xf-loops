@@ -1,16 +1,25 @@
-# 9xf loops v0.3
+# 9xf loops v0.4
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
 its own next sub-task, writes code, validates it, and commits — with no human in
 the loop. The research artifact is the git history plus `loop_log.jsonl`.
 
-v0.3 shifts the harness from pure observation toward **goal completion**: the
+v0.3 shifted the harness from pure observation toward **goal completion**: the
 goal is decomposed into a task list, progress is tracked per task, the loop can
 recover from regressions (auto-revert) and hard-stuck states (branch-and-explore),
 and a run can FINISH — verified against held-out acceptance criteria — instead
-of only hitting the iteration cap. Every new mechanism is logged and toggleable,
-so v0.2 behavior remains reproducible as the control in A/B runs.
+of only hitting the iteration cap.
+
+v0.4 turns the harness into an **overnight engine**: the bet is that a small
+local model (7B) plus hours of verified search can approach big-model output
+quality — trading time, which is free, for API spend, which isn't. New: an
+in-iteration repair loop (validation errors fed straight back to the executor),
+best-state checkpointing (`keep_best` — the run ships the best state it ever
+reached, not the last one), wall-clock budgets (`9xf run --hours 8`), and an
+`--preset overnight` that turns every search mechanism on at once. Every
+mechanism remains logged and toggleable, so earlier behavior stays reproducible
+as the control in A/B runs.
 
 Built per the LoopForge research PRD. Pure Python stdlib — no pip dependencies.
 
@@ -38,6 +47,51 @@ git -C ~/runs/organizer log --oneline
 9xf stop --dir ~/runs/organizer
 ```
 
+## Overnight mode (v0.4)
+
+The democratization thesis: frontier-model quality is mostly *verified search*,
+and a harness can supply the search even when the model is small. A 7B model's
+first attempt is weak; its hundredth validated, repaired, critic-reviewed,
+best-of-N-selected attempt — measured against held-out acceptance tests, with
+the best state ever reached checkpointed — is a different animal. You pay in
+hours instead of dollars.
+
+```bash
+# set it up before bed
+9xf init --goal "Write a CLI tool that organizes files by type" \
+         --preset overnight --dir ~/runs/organizer
+
+# 8 hours of verified search, then a clean shutdown
+9xf run --dir ~/runs/organizer --hours 8
+
+# in the morning: the best state the run ever reached, plus the full story
+9xf status --dir ~/runs/organizer
+9xf report --dir ~/runs/organizer
+```
+
+What `--preset overnight` turns on (each independently configurable):
+
+- **In-iteration repair** (`repair_attempts`, default 1; overnight 2): when an
+  executor attempt fails validation, the broken file contents and the exact
+  errors are fed straight back to the executor for an immediate fix — seconds,
+  instead of a full re-plan round trip. Repairs are logged per iteration
+  (`repairs`), so repair efficacy per model is itself research data.
+- **Best-state checkpointing** (`keep_best`, default on): every committed state
+  is scored — held-out acceptance first, then validation, task progress, test
+  count — and at shutdown the working tree is restored to the best-ever state
+  if the final one is worse (`restore_best` event). This makes overnight wall
+  time strictly additive: a run can wander at 3am without costing you the
+  thing it built at 1am.
+- **Wall-clock budget** (`max_hours` config or `9xf run --hours 8`): the loop
+  stops cleanly at the deadline, whichever comes first against the iteration cap.
+- **Maximum search**: best-of-3 candidates on *every* iteration (not just fix
+  mode), the critic reviewing every passing diff, branch-and-explore enabled
+  with a higher episode cap, and held-out acceptance tests generated at init.
+
+Recommended overnight pairing: `ollama/qwen2.5-coder:7b` with `num_ctx` raised
+to 32768 in `9xf.config.json` if you have the RAM — context truncation is the
+quiet killer of long runs.
+
 ## How an iteration works
 
 1. Read `goal.txt` (never modified by the agent)
@@ -50,7 +104,9 @@ git -C ~/runs/organizer log --oneline
    local models). Optionally emits `RUN_TOOL: <name> <args>` to run helper
    scripts from `tools/`.
 6. Validate: `py_compile` every written file, run the entry point, then run
-   `python -m unittest discover -s tests -t .` if tests exist
+   `python -m unittest discover -s tests -t .` if tests exist. A failed
+   validation triggers up to `repair_attempts` immediate repair calls — the
+   errors and broken file contents go straight back to the executor (v0.4)
 7. Commit — **failed attempts are committed too**; failures are research data
 8. Append the JSONL log entry (also committed, so log and history stay in sync)
 9. Sleep, repeat
@@ -161,9 +217,9 @@ Set in `9xf.config.json` (written at init, never modified by the agent):
 - `anthropic/<model>` — API mode for comparison runs; reads the key from the
   env var named by `api_key_env` (default `ANTHROPIC_API_KEY`)
 - `mock` — deterministic scripted backend for testing the harness itself.
-  Scenario variants drive specific v0.3 paths: `mock/finisher` (runs to
+  Scenario variants drive specific harness paths: `mock/finisher` (runs to
   FINISHED), `mock/regressor` (forces auto-revert), `mock/explorer` (forces
-  branch-and-explore)
+  branch-and-explore), `mock/repairer` (forces the in-iteration repair loop)
 
 ## Testing the harness
 
@@ -204,6 +260,7 @@ ninexf/
   relevance.py  relevance-scored context selection (mentions/errors/imports/overlap)
   candidates.py best-of-N candidate scoring + critic verdict parsing
   explore.py    branch-and-explore trigger logic
+  fitness.py    best-state scoring + keep_best restore decision (v0.4)
   backends.py   ollama / anthropic / mock (+ mock/<scenario> variants)
   prompts.py    planner/executor/decompose/verify/critic/acceptance prompts
   parser.py     SUMMARY/FILE-block/RUN_TOOL/NOTE parsing

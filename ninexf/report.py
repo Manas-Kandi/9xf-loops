@@ -177,6 +177,10 @@ def generate_report(project_dir: Path) -> Path:
         f"- best-of-N iterations: {sum(1 for e in iters if len(e.get('candidates', [])) > 1)}"
         f"; non-first candidate won: "
         f"{sum(1 for e in iters if e.get('chosen_candidate', 0) > 0)}",
+        f"- in-iteration repairs: "
+        f"{sum(1 for e in iters if e.get('repairs'))} iteration(s) repaired, "
+        f"{sum(1 for e in iters if e.get('repairs') and e['repairs'][-1].get('passed'))} "
+        f"ended green",
         "",
         "## Recovery events (v0.3)",
         "",
@@ -186,6 +190,9 @@ def generate_report(project_dir: Path) -> Path:
         f"- stuck-signal histogram: " + (
             ", ".join(f"{k}×{c}" for k, c in signal_counts.most_common())
             if signal_counts else "none fired"),
+        f"- best-state restore at shutdown (keep_best): " + (
+            "; ".join(e.get("summary", "") for e in entries
+                      if e.get("event") == "restore_best") or "not needed"),
         f"- exploration episodes: {len(explore_events)}"
         + ("".join(f"\n  - iter {e['iteration']}: {e.get('summary', '')} "
                    f"(A {'ok' if e.get('explore', {}).get('a', {}).get('passed') else 'failed'}, "
