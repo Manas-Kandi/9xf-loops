@@ -16,7 +16,9 @@ from ninexf.config import DEFAULTS, NVIDIA_ENDPOINT, Config
 
 
 class BackendError(Exception):
-    pass
+    def __init__(self, message: str, *, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 def context_overflowed(prompt_tokens: int | None, num_ctx: int) -> bool:
@@ -59,7 +61,11 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")[:500]
-        raise BackendError(f"HTTP {e.code} from {url}: {body}") from e
+        message = f"HTTP {e.code} from {url}: {body}"
+        if e.code in {401, 403}:
+            message += " (check the provider API key and model access)"
+            raise BackendError(message, retryable=False) from e
+        raise BackendError(message) from e
     except urllib.error.URLError as e:
         raise BackendError(f"cannot reach {url}: {e.reason}") from e
     except (TimeoutError, socket.timeout) as e:
@@ -113,7 +119,8 @@ class AnthropicBackend(Backend):
         self.api_key = os.environ.get(config.api_key_env, "")
         if not self.api_key:
             raise BackendError(
-                f"API mode requires {config.api_key_env} to be set in the environment"
+                f"API mode requires {config.api_key_env} to be set in the environment",
+                retryable=False,
             )
 
     def complete(self, system: str, user: str, temperature: float | None = None) -> str:
@@ -167,7 +174,8 @@ class NvidiaBackend(Backend):
         self.api_key = os.environ.get(self.api_key_env, "")
         if not self.api_key:
             raise BackendError(
-                f"API mode requires {self.api_key_env} to be set in the environment"
+                f"API mode requires {self.api_key_env} to be set in the environment",
+                retryable=False,
             )
 
     def complete(self, system: str, user: str, temperature: float | None = None) -> str:
@@ -855,5 +863,6 @@ def make_backend(config: Config) -> Backend:
         return MockBackend(scenario)
     raise BackendError(
         f"unknown provider {provider!r} "
-        "(use ollama/<model>, nvidia/<model>, anthropic/<model>, or mock)"
+        "(use ollama/<model>, nvidia/<model>, anthropic/<model>, or mock)",
+        retryable=False,
     )

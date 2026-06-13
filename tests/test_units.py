@@ -4,8 +4,10 @@ parser, fitness, config presets."""
 from __future__ import annotations
 
 import os
+import io
 import tempfile
 import subprocess
+import urllib.error
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,6 +22,7 @@ from ninexf.loop_common import ExecOutcome, _repair_file_dump
 from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
+from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, REPAIR_NOTE
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
 from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle
@@ -186,6 +189,19 @@ class TestBackendAndStatus(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
             with self.assertRaisesRegex(BackendError, "timeout calling"):
                 _post_json("http://127.0.0.1:11434/api/chat", {}, {}, timeout=1)
+
+    def test_post_json_auth_failure_is_not_retryable(self):
+        http_error = urllib.error.HTTPError(
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+            403,
+            "Forbidden",
+            {},
+            io.BytesIO(b'{"detail":"Authorization failed"}'),
+        )
+        with mock.patch("urllib.request.urlopen", side_effect=http_error):
+            with self.assertRaisesRegex(BackendError, "check the provider API key") as cm:
+                _post_json("https://integrate.api.nvidia.com/v1/chat/completions", {}, {})
+        self.assertFalse(cm.exception.retryable)
 
     def test_ollama_backend_uses_configured_timeout(self):
         cfg = Config(model="ollama/test:latest", backend_timeout=123)
@@ -390,6 +406,13 @@ class TestContextSafety(unittest.TestCase):
         self.assertTrue(context_overflowed(16384, 16384))
         self.assertFalse(context_overflowed(8000, 16384))
         self.assertFalse(context_overflowed(None, 16384))
+
+    def test_prompts_prevent_future_module_imports_in_entry_point(self):
+        self.assertIn("validation-green", DECOMPOSE_USER)
+        self.assertIn("must not import modules that do not exist yet", DECOMPOSE_USER)
+        self.assertIn("not already present in CURRENT CODEBASE", EXECUTOR_SYSTEM)
+        self.assertIn("do not use package-relative", EXECUTOR_SYSTEM)
+        self.assertIn("Do not \"fix\" `python src/main.py`", REPAIR_NOTE)
 
     def test_render_partial(self):
         d = Path(tempfile.mkdtemp())

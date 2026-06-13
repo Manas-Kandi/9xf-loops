@@ -194,7 +194,12 @@ CRITERION: <one observable, checkable statement about the finished program>
 Rules:
 - 5 to 12 TASK lines, in build order. Each must be small enough for one
   iteration of work (one or two files).
-- The first task should create the program's entry point in src/.
+- Every task must leave the project runnable and validation-green on its own.
+  Do not create a task that depends on files planned for later tasks unless
+  that task also creates those files.
+- The first task should create the program's entry point in src/. If the final
+  app will be split across modules later, the first entry point must be
+  standalone and must not import modules that do not exist yet.
 - 3 to 8 CRITERION lines. Each must be checkable by running the program or
   its tests (e.g. "running `python src/main.py --help` exits 0 and prints usage").
 - Tasks and criteria must stay within the harness sandbox: source in src/,
@@ -304,6 +309,9 @@ Fix exactly these errors now while preserving the PROJECT CONTRACT. Prefer
 implementation fixes over weakening tests. Edit tests only if they are
 nondeterministic, contradict the contract, or assert the wrong behavior.
 The PROJECT CONTRACT overrides any test expectation that contradicts it.
+If the failure is a missing import, either create the imported module in the
+same response or remove the dependency. Do not "fix" `python src/main.py` by
+switching to package-relative imports such as `from .module import name`.
 Rewrite the broken file(s) completely, changing as little else as possible.
 Same output format (SUMMARY + FILE blocks)."""
 
@@ -376,6 +384,11 @@ Output format — follow it EXACTLY:
 Rules:
 - File paths must be relative and inside `src/`, `tests/`, or `tools/` only.
 - Rewrite whole files; partial edits are not supported.
+- Every response must leave the project runnable and validation-green. Do not
+  import modules that are not already present in CURRENT CODEBASE unless you
+  create those modules in the same response.
+- `src/main.py` is run as `python src/main.py`; do not use package-relative
+  imports such as `from .module import name` in that file.
 - Helper scripts in tools/ must have a module docstring whose first line
   describes what the tool does.
 - RUN_TOOL may only name an existing listed helper script exactly. Never use

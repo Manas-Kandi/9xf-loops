@@ -401,8 +401,11 @@ class LoopRunner(
                     return
             except BackendError as e:
                 backend_failures += 1
-                logger.info(f"[9xf] iter {iteration} backend error ({backend_failures}/"
-                      f"{MAX_CONSECUTIVE_BACKEND_FAILURES}): {e}")
+                if getattr(e, "retryable", True):
+                    logger.info(f"[9xf] iter {iteration} backend error ({backend_failures}/"
+                          f"{MAX_CONSECUTIVE_BACKEND_FAILURES}): {e}")
+                else:
+                    logger.info(f"[9xf] iter {iteration} non-retryable backend error: {e}")
                 append_activity(self.project_dir, f"backend error: {e}",
                                 iteration=iteration, kind="error")
                 append_entry(self.project_dir, LogEntry(
@@ -415,6 +418,9 @@ class LoopRunner(
                 write_state(self.project_dir, running=True, iteration=iteration,
                             mode="backend_error", subtask=f"backend error: {e}",
                             validation_passed=False, ts=now_iso())
+                if not getattr(e, "retryable", True):
+                    self._clean_shutdown(iteration, "non-retryable backend failure")
+                    return
                 if backend_failures >= MAX_CONSECUTIVE_BACKEND_FAILURES:
                     self._clean_shutdown(iteration, "too many consecutive backend failures")
                     return
