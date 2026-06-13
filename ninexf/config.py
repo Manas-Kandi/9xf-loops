@@ -44,6 +44,7 @@ DEFAULTS = {
     "explore_after_stuck": 3,
     "max_explores_per_run": 2,
     "repair_attempts": 1,  # in-iteration fix-it-now retries after failed validation
+    "format_retry_attempts": 1,  # immediate retry when executor output is not parseable
     "keep_best": True,  # restore the best-scoring state at shutdown if final is worse
     "max_hours": 0,  # wall-clock budget for a run (0 = no time limit)
     "num_ctx": 16384,  # ollama context window
@@ -68,6 +69,7 @@ PRESETS = {
         "explore_enabled": True,
         "max_explores_per_run": 4,
         "repair_attempts": 2,
+        "format_retry_attempts": 2,
         "max_task_failures": 4,
         "max_verify_attempts": 5,
         "acceptance_tests": True,
@@ -110,6 +112,7 @@ class Config:
     explore_after_stuck: int = DEFAULTS["explore_after_stuck"]
     max_explores_per_run: int = DEFAULTS["max_explores_per_run"]
     repair_attempts: int = DEFAULTS["repair_attempts"]
+    format_retry_attempts: int = DEFAULTS["format_retry_attempts"]
     keep_best: bool = DEFAULTS["keep_best"]
     max_hours: float = DEFAULTS["max_hours"]
     num_ctx: int = DEFAULTS["num_ctx"]

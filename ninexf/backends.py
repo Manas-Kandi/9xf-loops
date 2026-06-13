@@ -475,6 +475,38 @@ class MockBackend(Backend):
             "RUN_TOOL: unittest discover -s tests\n"
         )
 
+    def _format_retry(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py with a greeting.\n"
+                "TASK: Add a unit test for the greeting.\n"
+                "CRITERION: running `python src/main.py` exits 0\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "one PASS/FAIL line" in user:
+            return "PASS: C1\n"
+        if "single most useful next step" in user:
+            return "TASK T1: Create src/main.py with a greeting."
+        if "YOUR PREVIOUS REPLY COULD NOT BE PARSED" in user:
+            return (
+                "SUMMARY: Created the greeting entry point after format retry.\n"
+                "FILE: src/main.py\n"
+                "```python\n"
+                "def main():\n"
+                "    print('hello')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+                "```\n"
+            )
+        return (
+            "I will create src/main.py.\n\n"
+            "```python\n"
+            "def main():\n"
+            "    print('hello')\n"
+            "```\n"
+        )
+
     def _tests_fail_and_unknown_tool(self, user: str) -> str:
         if "Break this goal down" in user:
             return (
@@ -593,6 +625,8 @@ class MockBackend(Backend):
             return self._unknown_tool(user)
         if self.scenario == "unittest_tool":
             return self._unittest_tool(user)
+        if self.scenario == "format_retry":
+            return self._format_retry(user)
         if self.scenario == "tests_fail_unknown_tool":
             return self._tests_fail_and_unknown_tool(user)
         if self.scenario == "jump_ahead":

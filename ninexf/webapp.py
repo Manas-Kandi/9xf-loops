@@ -54,6 +54,7 @@ def _chat_entry(e: dict) -> dict:
         "ok": bool(e.get("validation_passed")),
         "detail": e.get("validation_detail", ""),
         "errors": [str(x)[:300] for x in (e.get("errors") or [])][:5],
+        "warnings": [str(x)[:200] for x in (e.get("parse_warnings") or [])][:3],
         "files": e.get("files_written", []),
         "commit": e.get("commit", ""),
         "repairs": len(e.get("repairs") or []),
@@ -68,6 +69,9 @@ def _chat_entry(e: dict) -> dict:
         "overflow": bool(e.get("context_overflow")),
         "tool_runs": [{"name": t.get("name", ""), "result": str(t.get("result", ""))[:200]}
                       for t in (e.get("tool_runs") or [])][:3],
+        "model_calls": len(e.get("model_calls") or []),
+        "model_seconds": round(sum(float(c.get("latency_s", 0) or 0)
+                                   for c in (e.get("model_calls") or [])), 1),
     }
 
 
@@ -100,6 +104,7 @@ def run_detail(d: Path) -> dict:
                 "ok": False,
                 "detail": "",
                 "errors": [],
+                "warnings": [],
                 "files": [],
                 "commit": "",
                 "repairs": 0,
@@ -113,6 +118,8 @@ def run_detail(d: Path) -> dict:
                 "acceptance": None,
                 "overflow": False,
                 "tool_runs": [],
+                "model_calls": 0,
+                "model_seconds": 0,
             })
     for a in (state.get("activity") or [])[-80:]:
         rendered_entries.append({
@@ -125,6 +132,7 @@ def run_detail(d: Path) -> dict:
             "ok": True,
             "detail": "",
             "errors": [],
+            "warnings": [],
             "files": [],
             "commit": "",
             "repairs": 0,
@@ -138,6 +146,8 @@ def run_detail(d: Path) -> dict:
             "acceptance": None,
             "overflow": False,
             "tool_runs": [],
+            "model_calls": 0,
+            "model_seconds": 0,
         })
     # Order the whole stream top-to-bottom in time. Activities and the live
     # marker carry the iteration they belong to, so sort primarily by iteration

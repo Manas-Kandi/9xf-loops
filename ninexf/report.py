@@ -85,6 +85,10 @@ def generate_report(project_dir: Path) -> Path:
     ]
     modes = Counter(e.get("mode", "build") for e in iters)
     nothing_written = [e for e in iters if not e.get("files_written")]
+    model_calls = [c for e in entries for c in (e.get("model_calls") or [])]
+    model_call_counts = Counter(c.get("purpose", "?") for c in model_calls)
+    model_seconds = sum(float(c.get("latency_s", 0) or 0) for c in model_calls)
+    model_errors = [c for c in model_calls if not c.get("ok")]
 
     windows, rates = [], []
     for i in range(0, n, WINDOW):
@@ -163,6 +167,18 @@ def generate_report(project_dir: Path) -> Path:
         f"{sum(1 for e in iters if e.get('context_overflow'))}/{n}",
         f"- partial file renders: "
         f"{sum(1 for e in iters for f in e.get('context_files', []) if '(partial)' in f)}",
+        "",
+        "## Model/backend telemetry",
+        "",
+        f"- model calls logged: {len(model_calls)}",
+        f"- model wall time: {model_seconds:.1f}s",
+        f"- average prompt size: "
+        + (f"{sum(int(c.get('prompt_chars', 0) or 0) for c in model_calls) // len(model_calls)} chars"
+           if model_calls else "n/a"),
+        f"- calls by purpose: " + (
+            ", ".join(f"{k}×{v}" for k, v in model_call_counts.most_common())
+            if model_calls else "n/a"),
+        f"- backend/model-call errors: {len(model_errors)}",
         "",
         "## Verification (v0.3)",
         "",

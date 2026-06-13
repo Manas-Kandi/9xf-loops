@@ -46,6 +46,7 @@ from ninexf.prompts import (
     CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
     DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
+    FORMAT_RETRY_NOTE,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
     CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
     TASK_ELIGIBILITY_NUDGE,
@@ -128,6 +129,16 @@ def _validation_tool_notice(name: str, args: str) -> str:
     return ""
 
 
+def _fatal_parse_problems(parsed: ParsedOutput) -> list[str]:
+    """Problems that make an executor reply unusable."""
+    return [p for p in parsed.problems if p.startswith("no FILE blocks")]
+
+
+def _parse_warnings(parsed: ParsedOutput) -> list[str]:
+    """Non-fatal formatting problems worth logging without rejecting good code."""
+    return [p for p in parsed.problems if p not in _fatal_parse_problems(parsed)]
+
+
 @dataclass
 class ExecOutcome:
     """One executor attempt: parsed output, written files, validation result."""
@@ -140,6 +151,7 @@ class ExecOutcome:
     failure_kind: str = ""
     error_signature: str = ""
     error_excerpt: str = ""
+    parse_warnings: list[str] = field(default_factory=list)
 
 
 class LoopRunner:
@@ -150,6 +162,45 @@ class LoopRunner:
         self.goal = (project_dir / GOAL_FILENAME).read_text().strip()
         self._interrupted = False
         self._finished = False  # set when verify_done declares the goal complete
+        self._model_calls: list[dict] = []
+
+    def _reset_model_calls(self) -> None:
+        self._model_calls = []
+
+    def _take_model_calls(self) -> list[dict]:
+        calls = self._model_calls
+        self._model_calls = []
+        return calls
+
+    def _complete(
+        self,
+        purpose: str,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+    ) -> str:
+        """Model-call wrapper that records backend cost and failure evidence."""
+        started = time.perf_counter()
+        record = {
+            "purpose": purpose,
+            "temperature": temperature,
+            "prompt_chars": len(system) + len(user),
+            "response_chars": 0,
+            "latency_s": 0.0,
+            "ok": False,
+            "error": "",
+        }
+        try:
+            response = self.backend.complete(system, user, temperature=temperature)
+            record["response_chars"] = len(response)
+            record["ok"] = True
+            return response
+        except BackendError as e:
+            record["error"] = str(e)[:500]
+            raise
+        finally:
+            record["latency_s"] = round(time.perf_counter() - started, 3)
+            self._model_calls.append(record)
 
     # -- shutdown plumbing ----------------------------------------------------
 
@@ -268,13 +319,15 @@ class LoopRunner:
         signal-specific nudge. Returns (subtask, fired_signal_kinds)."""
         base = self._planner_base(mode, codebase, history, tools)
         entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
-        subtask = self.backend.complete(PLANNER_SYSTEM, base).strip().splitlines()[0][:500]
+        subtask = self._complete("planner", PLANNER_SYSTEM, base).strip().splitlines()[0][:500]
         signals = detect_signals(subtask, entries, self.config.stuck_similarity)
         if not signals:
             return self._ensure_eligible_plan(base, subtask), []
         nudge = STUCK_NUDGE.format(
             signals="\n".join(f"  - {s.kind}: {s.detail}" for s in signals))
-        retry = self.backend.complete(PLANNER_SYSTEM, base + nudge).strip().splitlines()[0][:500]
+        retry = self._complete(
+            "planner_stuck_retry", PLANNER_SYSTEM, base + nudge,
+        ).strip().splitlines()[0][:500]
         # keep the retry even if still similar — one nudge only; persistence is data
         return self._ensure_eligible_plan(base, retry), [s.kind for s in signals]
 
@@ -303,7 +356,8 @@ class LoopRunner:
         problem = self._task_ref_problem(subtask)
         if not problem:
             return subtask
-        retry = self.backend.complete(
+        retry = self._complete(
+            "planner_task_retry",
             PLANNER_SYSTEM,
             base + TASK_ELIGIBILITY_NUDGE.format(reason=problem),
         ).strip().splitlines()[0][:500]
@@ -416,9 +470,11 @@ class LoopRunner:
         tools = tools_for_prompt(self.project_dir) if cfg.tools_enabled else "(tools disabled)"
         base = self._planner_base("build", codebase, history, tools)
 
-        plan_a = self.backend.complete(
+        plan_a = self._complete(
+            "explore_plan_a",
             PLANNER_SYSTEM, base + EXPLORE_NUDGE_A).strip().splitlines()[0][:500]
-        plan_b = self.backend.complete(
+        plan_b = self._complete(
+            "explore_plan_b",
             PLANNER_SYSTEM, base + EXPLORE_NUDGE_B.format(plan_a=plan_a)
         ).strip().splitlines()[0][:500]
 
@@ -438,7 +494,7 @@ class LoopRunner:
                 contract_section=contract_section,
                 notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
             ev = self._execute_once(iteration, plan, executor_user, None,
-                                    log_violations=False)
+                                    log_violations=False, purpose=f"explore_executor_{label}")
             acc, _ = (run_acceptance(self.project_dir, cfg.validation_timeout,
                                      cfg.allow_network) if ev.written else (None, 0))
             if has_changes(self.project_dir):
@@ -478,6 +534,8 @@ class LoopRunner:
             validation_passed=results[winner]["passed"], commit=commit_hash,
             event="explore", mode="explore",
             explore={**results, "winner": winner},
+            model_calls=self._take_model_calls(),
+            context_overflow=self.backend.take_overflow(),
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode="explore",
@@ -505,7 +563,7 @@ class LoopRunner:
                     subtask="(decomposing goal)", ts=now_iso())
         append_activity(self.project_dir, "asking model to decompose the goal",
                         iteration=iteration, kind="model")
-        raw = self.backend.complete(DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
+        raw = self._complete("decompose", DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
         append_activity(self.project_dir, "parsing decomposition output",
                         iteration=iteration)
         task_texts, criteria = parse_decomposition(raw)
@@ -514,7 +572,7 @@ class LoopRunner:
         if rejections and len(task_texts) < 2:
             retry_user = DECOMPOSE_USER.format(goal=self.goal) + DECOMPOSE_RETRY_NOTE.format(
                 rejections="\n".join(f"- {r}" for r in rejections[:8]))
-            raw = self.backend.complete(DECOMPOSE_SYSTEM, retry_user)
+            raw = self._complete("decompose_retry", DECOMPOSE_SYSTEM, retry_user)
             retry_tasks, retry_criteria = parse_decomposition(raw)
             task_texts, criteria, retry_rejections = sanitize_decomposition(
                 self.goal, retry_tasks, retry_criteria)
@@ -551,6 +609,8 @@ class LoopRunner:
             summary=summary, errors=errors, commit=commit_hash,
             event="decompose", mode="decompose",
             tasks_total=len(task_texts) if len(task_texts) >= 2 else 0,
+            model_calls=self._take_model_calls(),
+            context_overflow=self.backend.take_overflow(),
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode="decompose",
@@ -575,7 +635,8 @@ class LoopRunner:
         codebase = snapshot_codebase(self.project_dir, self.config.snapshot_budget)
         contract = contract_for_prompt(self.project_dir) or "(none)"
         try:
-            reply = self.backend.complete(
+            reply = self._complete(
+                "task_check",
                 TASK_CHECK_SYSTEM,
                 TASK_CHECK_USER.format(codebase=codebase, contract=contract,
                                        num=task.num, text=task.text),
@@ -614,7 +675,8 @@ class LoopRunner:
             codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget)
             validation_text = result.detail + (
                 "; errors: " + "; ".join(result.errors) if result.errors else " (all green)")
-            raw = self.backend.complete(
+            raw = self._complete(
+                "verify_done",
                 VERIFY_DONE_SYSTEM,
                 VERIFY_DONE_USER.format(goal=self.goal, codebase=codebase,
                                         contract=contract_for_prompt(self.project_dir) or "(none)",
@@ -671,6 +733,8 @@ class LoopRunner:
             failure_kind=result.failure_kind,
             error_signature=result.error_signature,
             error_excerpt=result.error_excerpt,
+            model_calls=self._take_model_calls(),
+            context_overflow=self.backend.take_overflow(),
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode="verify_done",
@@ -682,16 +746,36 @@ class LoopRunner:
     # -- one executor attempt ----------------------------------------------------
 
     def _execute_once(self, iteration: int, subtask: str, executor_user: str,
-                      temperature: float | None, log_violations: bool = True) -> ExecOutcome:
+                      temperature: float | None, log_violations: bool = True,
+                      purpose: str = "executor") -> ExecOutcome:
         """One executor call: complete -> parse -> write -> validate.
         log_violations=False during branch exploration, where appending log
         lines would diverge the JSONL across branches."""
         cfg = self.config
         append_activity(self.project_dir, "asking model to write code",
                         iteration=iteration, kind="model")
-        raw = self.backend.complete(EXECUTOR_SYSTEM, executor_user, temperature=temperature)
+        raw = self._complete(purpose, EXECUTOR_SYSTEM, executor_user, temperature=temperature)
         parsed = parse_executor_output(raw)
-        outcome = ExecOutcome(parsed=parsed, errors=list(parsed.problems))
+        for attempt in range(max(0, cfg.format_retry_attempts)):
+            fatal = _fatal_parse_problems(parsed)
+            if not fatal:
+                break
+            append_activity(self.project_dir,
+                            f"format retry {attempt + 1}: executor output was not parseable",
+                            iteration=iteration, kind="repair")
+            retry_user = executor_user + FORMAT_RETRY_NOTE.format(
+                problems="\n".join(f"- {p}" for p in parsed.problems)[:1200])
+            raw = self._complete(f"{purpose}_format_retry", EXECUTOR_SYSTEM,
+                                 retry_user, temperature=temperature)
+            parsed = parse_executor_output(raw)
+        if not parsed.summary and parsed.files:
+            names = ", ".join(list(parsed.files)[:3])
+            parsed.summary = f"updated {names}"
+        outcome = ExecOutcome(
+            parsed=parsed,
+            errors=_fatal_parse_problems(parsed),
+            parse_warnings=_parse_warnings(parsed),
+        )
         if parsed.files:
             append_activity(self.project_dir,
                             f"model proposed {len(parsed.files)} file write(s)",
@@ -755,7 +839,8 @@ class LoopRunner:
             evidence += "\n\n" + outcome.error_excerpt
         contract = contract_for_prompt(self.project_dir) or "(none)"
         try:
-            return self.backend.complete(
+            return self._complete(
+                "diagnosis",
                 DIAGNOSIS_SYSTEM,
                 DIAGNOSIS_USER.format(
                     goal=self.goal, codebase=codebase, history=history,
@@ -789,7 +874,7 @@ class LoopRunner:
                 errors += "\n\n" + outcome.error_excerpt
             errors = errors[:3500] or "(none recorded)"
             repair_user = executor_user + REPAIR_NOTE.format(files=dump, errors=errors)
-            new = self._execute_once(iteration, subtask, repair_user, None)
+            new = self._execute_once(iteration, subtask, repair_user, None, purpose="repair")
             repairs.append({
                 "attempt": attempt,
                 "errors_before": [str(e)[:200] for e in outcome.errors][:5],
@@ -806,6 +891,7 @@ class LoopRunner:
     # -- one iteration ---------------------------------------------------------
 
     def run_iteration(self, iteration: int) -> LogEntry:
+        self._reset_model_calls()
         cfg = self.config
         if self._needs_decompose():
             return self._run_decompose(iteration)
@@ -873,7 +959,8 @@ class LoopRunner:
             evals: list[tuple[ExecOutcome, CandidateResult]] = []
             for i in range(n):
                 temp = CANDIDATE_TEMPERATURES[i % len(CANDIDATE_TEMPERATURES)]
-                ev = self._execute_once(iteration, subtask, executor_user, temp)
+                ev = self._execute_once(iteration, subtask, executor_user, temp,
+                                        purpose=f"candidate_{i}")
                 acc, _ = run_acceptance(self.project_dir, cfg.validation_timeout,
                                         cfg.allow_network) if ev.written else (None, 0)
                 cr = CandidateResult(
@@ -918,7 +1005,8 @@ class LoopRunner:
         if (cfg.critic_enabled and outcome.validation_passed
                 and not outcome.errors and outcome.written):
             diff = staged_diff(self.project_dir, WRITABLE_DIRS)[:CRITIC_DIFF_CHARS]
-            raw_verdict = self.backend.complete(
+            raw_verdict = self._complete(
+                "critic",
                 CRITIC_SYSTEM,
                 CRITIC_USER.format(subtask=subtask, diff=diff,
                                    validation=outcome.validation_detail))
@@ -929,7 +1017,8 @@ class LoopRunner:
                 revise_user = executor_user + REVISE_NOTE.format(
                     issues="\n".join(f"- {i}" for i in critic_issues))
                 # one revision on top of the first attempt; commit either way
-                outcome = self._execute_once(iteration, subtask, revise_user, None)
+                outcome = self._execute_once(iteration, subtask, revise_user, None,
+                                             purpose="critic_revision")
             elif critic_verdict:
                 print(f"[9xf]   critic: {critic_verdict}")
 
@@ -1029,6 +1118,7 @@ class LoopRunner:
             validation_passed=validation_passed,
             validation_detail=validation_detail,
             errors=errors,
+            parse_warnings=outcome.parse_warnings,
             commit=commit_hash,
             mode=mode,
             stuck_detected=bool(stuck_signals),
@@ -1049,6 +1139,7 @@ class LoopRunner:
             candidates=candidates_log,
             chosen_candidate=chosen,
             repairs=repairs,
+            model_calls=self._take_model_calls(),
             context_overflow=self.backend.take_overflow(),
             failure_kind=outcome.failure_kind,
             error_signature=outcome.error_signature,
@@ -1125,6 +1216,8 @@ class LoopRunner:
                     iteration=iteration, timestamp=now_iso(), subtask="",
                     summary="backend error", errors=[str(e)], validation_passed=False,
                     event="backend_error", mode="backend_error",
+                    model_calls=self._take_model_calls(),
+                    context_overflow=self.backend.take_overflow(),
                 ))
                 write_state(self.project_dir, running=True, iteration=iteration,
                             mode="backend_error", subtask=f"backend error: {e}",

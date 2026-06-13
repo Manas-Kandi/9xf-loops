@@ -360,6 +360,23 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
         finally:
             cleanup(project)
 
+    def test_executor_format_retry_recovers_same_iteration(self):
+        project = make_run("Greeting tool", "mock/format_retry")
+        try:
+            entries = run_loop(project, max_iterations=2)
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            first = iters[0]
+            self.assertTrue(first["validation_passed"])
+            self.assertEqual(first["files_written"], ["src/main.py"])
+            self.assertFalse(first.get("repairs"), "format retry should not consume repair loop")
+            purposes = [c.get("purpose") for c in first.get("model_calls", [])]
+            self.assertIn("executor", purposes)
+            self.assertIn("executor_format_retry", purposes)
+            self.assertTrue(all("latency_s" in c for c in first.get("model_calls", [])))
+        finally:
+            cleanup(project)
+
     def test_verify_red_adds_validation_task_only(self):
         project = make_run("Greeting tool", "mock/finisher")
         try:

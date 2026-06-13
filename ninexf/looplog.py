@@ -20,6 +20,7 @@ class LogEntry:
     validation_passed: bool | None = None
     validation_detail: str = ""
     errors: list[str] = field(default_factory=list)
+    parse_warnings: list[str] = field(default_factory=list)
     commit: str = ""
     event: str = "iteration"  # iteration | startup | shutdown | violation | decompose | verify | finished | revert | explore | restore_best
     mode: str = "build"  # build | fix | review | verify_done
@@ -43,6 +44,7 @@ class LogEntry:
     chosen_candidate: int = 0
     explore: dict = field(default_factory=dict)  # {a: {...}, b: {...}, winner} on explore events
     repairs: list[dict] = field(default_factory=list)  # in-iteration repair attempts {attempt, errors_before, passed}
+    model_calls: list[dict] = field(default_factory=list)  # per-call purpose, size, latency, errors
     context_overflow: bool = False  # a prompt filled num_ctx (silent top-truncation risk)
     failure_kind: str = ""  # compile | import | entry | slow_entry | tests | timeout | slow_test | tool | parse
     error_signature: str = ""  # normalized first-error signature for stuck/diagnosis

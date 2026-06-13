@@ -259,6 +259,22 @@ The PROJECT CONTRACT overrides any test expectation that contradicts it.
 Rewrite the broken file(s) completely, changing as little else as possible.
 Same output format (SUMMARY + FILE blocks)."""
 
+FORMAT_RETRY_NOTE = """
+
+YOUR PREVIOUS REPLY COULD NOT BE PARSED BY THE HARNESS.
+
+Parser problems:
+{problems}
+
+Re-emit the same intended change using ONLY the required format:
+SUMMARY: <one sentence>
+FILE: <relative path inside src/, tests/, or tools/>
+```python
+<complete file contents>
+```
+
+Do not explain. Do not use diffs. Do not omit the FILE block."""
+
 REVISE_NOTE = """
 
 A REVIEWER FLAGGED PROBLEMS with your previous attempt at this sub-task:

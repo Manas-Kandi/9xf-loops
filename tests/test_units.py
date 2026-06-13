@@ -242,6 +242,7 @@ class TestPresets(unittest.TestCase):
         self.assertTrue(cfg.critic_enabled)
         self.assertTrue(cfg.explore_enabled)
         self.assertEqual(cfg.repair_attempts, 2)
+        self.assertEqual(cfg.format_retry_attempts, 2)
         self.assertTrue(cfg.keep_best)
         self.assertTrue(cfg.acceptance_tests)
         self.assertEqual(cfg.max_hours, 8)

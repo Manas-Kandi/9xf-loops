@@ -1,4 +1,4 @@
-# 9xf loops v0.6
+# 9xf loops v0.9.1:
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
@@ -18,6 +18,12 @@ in-iteration repair loop (validation errors fed straight back to the executor),
 best-state checkpointing (`keep_best` — the run ships the best state it ever
 reached, not the last one), wall-clock budgets (`9xf run --hours 8`), and an
 `--preset overnight` that turns every search mechanism on at once.
+
+Current builds also log model/backend telemetry per iteration (`model_calls`:
+purpose, prompt/response size, latency, temperature, and errors) and retry
+malformed executor output immediately before spending a full iteration on a
+format mistake. This matters for local models: the harness should spend
+overnight compute on verified code search, not on preventable protocol drift.
 
 v0.5 adds the **arena** (a successive-halving tournament of seed runs — built
 for single-machine compute), **context safety** (the snapshot budget is derived
@@ -99,6 +105,10 @@ What `--preset overnight` turns on (each independently configurable):
   errors are fed straight back to the executor for an immediate fix — seconds,
   instead of a full re-plan round trip. Repairs are logged per iteration
   (`repairs`), so repair efficacy per model is itself research data.
+- **Format retry** (`format_retry_attempts`, default 1; overnight 2): if the
+  executor has a usable intent but misses the required `SUMMARY:` + `FILE:`
+  block protocol, the harness asks for the same change again in parseable form
+  before touching the working tree.
 - **Best-state checkpointing** (`keep_best`, default on): every committed state
   is scored — held-out acceptance first, then validation, task progress, test
   count — and at shutdown the working tree is restored to the best-ever state
