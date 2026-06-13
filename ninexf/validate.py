@@ -176,6 +176,38 @@ def _slow_test_errors(project_dir: Path, threshold: float = 0.5) -> list[str]:
     return errors
 
 
+def _entry_static_errors(project_dir: Path, script: Path) -> list[str]:
+    """Fail obvious slow or non-terminating demos before subprocess timeout."""
+    try:
+        source = script.read_text()
+        tree = ast.parse(source)
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return []
+    rel = script.relative_to(project_dir)
+    errors = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                owner = getattr(node.func.value, "id", "")
+                full = f"{owner}.{node.func.attr}" if owner else node.func.attr
+            elif isinstance(node.func, ast.Name):
+                full = node.func.id
+            else:
+                full = ""
+            if full in {"time.sleep", "sleep"}:
+                rendered = ast.get_source_segment(source, node) or f"{full}(...)"
+                errors.append(
+                    f"slow_entry: {rel} calls {rendered}; entry points must "
+                    "demonstrate quickly without sleeping"
+                )
+        elif isinstance(node, ast.While):
+            if isinstance(node.test, ast.Constant) and node.test.value is True:
+                errors.append(
+                    f"slow_entry: {rel} contains while True; entry points must terminate"
+                )
+    return errors
+
+
 def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_network: bool) -> list[str]:
     """Execute each written src module in the sandbox (runpy, not __main__).
     Catches what compile-check can't: missing imports, module-level NameErrors,
@@ -267,7 +299,9 @@ def validate(
     if not errors:
         entry = _entry_point(project_dir)
         if entry is not None:
-            errors = _run_entry(project_dir, entry, timeout, allow_network)
+            errors = _entry_static_errors(project_dir, entry)
+            if not errors:
+                errors = _run_entry(project_dir, entry, timeout, allow_network)
             detail_parts.append(f"ran {entry.relative_to(project_dir)}")
         if run_tests:
             slow_errors = _slow_test_errors(project_dir)
@@ -283,6 +317,8 @@ def validate(
     if errors:
         if "timed out after" in first_error:
             failure_kind = "timeout"
+        elif first_error.startswith("slow_entry:"):
+            failure_kind = "slow_entry"
         elif first_error.startswith("slow_test:"):
             failure_kind = "slow_test"
         elif first_error.startswith("tests:"):

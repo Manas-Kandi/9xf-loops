@@ -6,6 +6,7 @@ from __future__ import annotations
 import unittest
 
 from tests.helpers import cleanup, events, git, iteration_entries, make_run, run_loop
+from ninexf.tasks import Task, TaskList, save_criteria, save_tasks
 
 
 class TestFinisher(unittest.TestCase):
@@ -343,6 +344,38 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
             self.assertFalse(iters[0]["validation_passed"])
             self.assertEqual(iters[0]["failure_kind"], "tests")
             self.assertIn("unknown tool requested", "\n".join(iters[0]["errors"]))
+        finally:
+            cleanup(project)
+
+    def test_unittest_tool_request_is_ignored_when_validation_passes(self):
+        project = make_run("Greeting tool", "mock/unittest_tool")
+        try:
+            entries = run_loop(project, max_iterations=2)
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            self.assertTrue(iters[0]["validation_passed"])
+            self.assertEqual(iters[0]["failure_kind"], "")
+            self.assertIn("ignored: unittest discovery",
+                          iters[0]["tool_runs"][0]["result"])
+        finally:
+            cleanup(project)
+
+    def test_verify_red_adds_validation_task_only(self):
+        project = make_run("Greeting tool", "mock/finisher")
+        try:
+            (project / "src").mkdir(exist_ok=True)
+            (project / "src" / "main.py").write_text("def main(:\n    pass\n")
+            save_tasks(project, TaskList(tasks=[Task(1, "Already done", "x")]))
+            save_criteria(project, [
+                "running `python src/main.py` exits 0",
+                "tests in tests/ pass",
+            ])
+            entries = run_loop(project, max_iterations=1)
+            verify = events(entries, "verify")[0]
+            self.assertFalse(verify["validation_passed"])
+            tasks = (project / "TASKS.md").read_text()
+            self.assertIn("Fix validation failures", tasks)
+            self.assertNotIn("Fix acceptance criterion", tasks)
         finally:
             cleanup(project)
 

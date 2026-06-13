@@ -36,6 +36,7 @@ def save_contract(
         "- Once a public name, constructor, method, or return type exists, keep it stable unless validation proves it violates the goal.",
         "- Prefer fixing implementation code over weakening tests. Edit tests only when they are wrong, slow, nondeterministic, or contradict this contract.",
         "- Tests must be deterministic: do not call `time.sleep()`, `time.time()`, or `time.monotonic()` in tests; inject clocks or use fixed numeric timestamps.",
+        "- Entry points and demos must be bounded and fast: no sleeps, infinite loops, long animations, or waiting for user input unless the goal explicitly asks.",
         "- Do not request external tools such as pytest, flake8, npm, pip, or shell commands.",
         "",
         "## Ordered Work",

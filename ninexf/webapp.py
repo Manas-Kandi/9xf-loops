@@ -35,6 +35,7 @@ MAX_DIFF_CHARS = 200_000
 MAX_ENTRIES = 300
 MAX_BUNDLE_CHARS = 900_000
 MAX_BUNDLE_FILE_CHARS = 120_000
+DIAGNOSTIC_BUNDLE_FILENAME = "9xf-diagnostic-bundle.txt"
 
 _PROCS: dict[str, subprocess.Popen] = {}  # dir -> spawned run process
 
@@ -138,6 +139,22 @@ def run_detail(d: Path) -> dict:
             "overflow": False,
             "tool_runs": [],
         })
+    # Order the whole stream top-to-bottom in time. Activities and the live
+    # marker carry the iteration they belong to, so sort primarily by iteration
+    # and secondarily by a per-event rank (lead-up activity → live → the commit
+    # record). Startup pins to the top; finished/shutdown sink to the bottom.
+    _RANK = {"startup": 0, "explore": 1, "violation": 1, "revert": 1,
+             "activity": 1, "live": 2, "iteration": 3, "finished": 4, "shutdown": 4}
+    def _chrono(item):
+        idx, e = item
+        ev = e.get("event", "iteration")
+        it = int(e.get("iteration", 0) or 0)
+        if ev == "startup":
+            it = -1
+        elif ev in ("finished", "shutdown"):
+            it = 10**9
+        return (it, _RANK.get(ev, 1), idx)
+    rendered_entries = [e for _, e in sorted(enumerate(rendered_entries), key=_chrono)]
     tl = load_tasks(d)
     done, total = tl.counts()
     return {
@@ -226,6 +243,17 @@ def diagnostic_bundle(d: Path) -> dict:
         else:
             add(rel, "(missing)\n")
 
+    state = read_state(d)
+    activity = state.get("activity") or []
+    if activity:
+        lines = []
+        for a in activity[-80:]:
+            lines.append(
+                f"{a.get('ts', '')} iter={a.get('iteration', 0)} "
+                f"{a.get('kind', 'activity')}: {a.get('message', '')}"
+            )
+        add("live activity stream", "\n".join(lines) + "\n")
+
     add("git status --short", _git_for_bundle(d, ["status", "--short"]))
     add("git log --oneline --decorate -n 80",
         _git_for_bundle(d, ["log", "--oneline", "--decorate", "-n", "80"]))
@@ -252,6 +280,37 @@ def diagnostic_bundle(d: Path) -> dict:
     if len(text) > MAX_BUNDLE_CHARS:
         text = text[:MAX_BUNDLE_CHARS] + f"\n... (bundle truncated at {MAX_BUNDLE_CHARS} chars)\n"
     return {"text": text, "chars": len(text)}
+
+
+def _exclude_diagnostic_bundle(d: Path) -> None:
+    """Keep saved bundles out of the run's research git history."""
+    exclude = d / ".git" / "info" / "exclude"
+    if not exclude.exists():
+        return
+    entry = f"/{DIAGNOSTIC_BUNDLE_FILENAME}"
+    try:
+        text = exclude.read_text()
+        if entry not in text.splitlines():
+            sep = "" if text.endswith("\n") or not text else "\n"
+            exclude.write_text(text + sep + entry + "\n")
+    except OSError:
+        return
+
+
+def export_diagnostic_bundle(d: Path) -> dict:
+    """Return the pasteable bundle and also save it beside the run."""
+    bundle = diagnostic_bundle(d)
+    text = bundle.get("text")
+    if not text:
+        return bundle
+    path = d / DIAGNOSTIC_BUNDLE_FILENAME
+    try:
+        _exclude_diagnostic_bundle(d)
+        path.write_text(text)
+        bundle["path"] = str(path)
+    except OSError as e:
+        bundle["save_error"] = str(e)
+    return bundle
 
 
 def browse(path_str: str) -> dict:
@@ -372,7 +431,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json(commit_diff(Path(q.get("dir", "")).expanduser(),
                                        q.get("commit", "")))
             elif url.path == "/api/export":
-                self._json(diagnostic_bundle(Path(q.get("dir", "")).expanduser()))
+                self._json(export_diagnostic_bundle(Path(q.get("dir", "")).expanduser()))
             elif url.path == "/api/browse":
                 self._json(browse(q.get("path", "")))
             elif url.path == "/api/models":

@@ -451,6 +451,30 @@ class MockBackend(Backend):
             "RUN_TOOL: pytest tests/\n"
         )
 
+    def _unittest_tool(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py and request unittest discovery.\n"
+                "CRITERION: validation passes\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "one PASS/FAIL line" in user:
+            return "PASS: C1\n"
+        if "single most useful next step" in user:
+            return "TASK T1: Create src/main.py and request unittest discovery."
+        return (
+            "SUMMARY: Created src/main.py and requested built-in unittest validation.\n"
+            "FILE: src/main.py\n"
+            "```python\n"
+            "def main():\n"
+            "    print('hello')\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+            "```\n"
+            "RUN_TOOL: unittest discover -s tests\n"
+        )
+
     def _tests_fail_and_unknown_tool(self, user: str) -> str:
         if "Break this goal down" in user:
             return (
@@ -567,6 +591,8 @@ class MockBackend(Backend):
             return self._slow_test(user)
         if self.scenario == "unknown_tool":
             return self._unknown_tool(user)
+        if self.scenario == "unittest_tool":
+            return self._unittest_tool(user)
         if self.scenario == "tests_fail_unknown_tool":
             return self._tests_fail_and_unknown_tool(user)
         if self.scenario == "jump_ahead":

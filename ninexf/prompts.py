@@ -160,6 +160,8 @@ Rules:
   or any unavailable external tool unless the goal explicitly asks for it.
 - Do not require generated files to be empty; useful entry points and modules
   should contain behavior.
+- Entry points and demos must be bounded and fast: no sleeps, infinite loops,
+  long animations, or waiting for user input unless the goal explicitly asks.
 - One line per task/criterion. No other text."""
 
 DECOMPOSE_RETRY_NOTE = """
@@ -244,7 +246,7 @@ REPAIR_NOTE = """
 
 YOUR PREVIOUS ATTEMPT AT THIS SUB-TASK FAILED VALIDATION.
 
-Files you wrote (their current, broken contents):
+Files relevant to this failure (current contents; includes traceback-referenced files):
 {files}
 
 Validation errors:
@@ -253,6 +255,7 @@ Validation errors:
 Fix exactly these errors now while preserving the PROJECT CONTRACT. Prefer
 implementation fixes over weakening tests. Edit tests only if they are
 nondeterministic, contradict the contract, or assert the wrong behavior.
+The PROJECT CONTRACT overrides any test expectation that contradicts it.
 Rewrite the broken file(s) completely, changing as little else as possible.
 Same output format (SUMMARY + FILE blocks)."""
 
@@ -318,9 +321,13 @@ Rules:
   tests that call time.sleep(), time.time(), or time.monotonic(); inject clocks
   or use fixed numeric timestamps. Do not require pytest/flake8 or assert
   wall-clock timing.
+- Entry points and demos must terminate quickly. Do not use time.sleep(),
+  infinite loops, long animations, or interactive input unless the goal
+  explicitly requires them.
 - Follow the PROJECT CONTRACT. Do not duplicate canonical implementations.
 - Prefer implementation fixes over weakening tests. Edit tests only when they
-  are nondeterministic, contradict the contract, or assert the wrong behavior."""
+  are nondeterministic, contradict the contract, or assert the wrong behavior.
+  The PROJECT CONTRACT overrides contradictory expected values in tests."""
 
 EXECUTOR_USER = """\
 GOAL:

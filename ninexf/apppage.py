@@ -67,7 +67,8 @@ textarea{resize:vertical;min-height:72px}
 
 /* ---------- sidebar ---------- */
 #side{width:272px;min-width:272px;background:var(--well);
-  display:flex;flex-direction:column}
+  display:flex;flex-direction:column;transition:width .16s ease,min-width .16s ease}
+#side.collapsed{width:0;min-width:0;overflow:hidden}
 #brand{padding:20px 18px 8px}
 #brand .word{font-size:16px;font-weight:600;color:var(--txt)}
 #brand .word b{color:var(--amber)}
@@ -121,49 +122,66 @@ textarea{resize:vertical;min-height:72px}
 #panes{flex:1;display:flex;min-height:0}
 .panehead{padding:12px 22px 4px;font-size:11px;color:var(--faint);display:flex;
   justify-content:space-between;align-items:center;gap:8px}
-#chatwrap{flex:1.08;display:flex;flex-direction:column;min-width:0}
+#chatwrap{flex:1;display:flex;flex-direction:column;min-width:280px}
+.gutter{flex:none;width:7px;cursor:col-resize;background:transparent;
+  border-left:1px solid var(--line);transition:border-color .12s}
+.gutter:hover,.gutter.drag{border-left-color:var(--amber2)}
+/* icon button: quiet, square, for chrome controls (collapse, etc.) */
+.iconbtn{border:0;background:transparent;color:var(--dim);padding:5px 7px;
+  border-radius:7px;font-size:14px;line-height:1}
+.iconbtn:hover{background:var(--panel2);color:var(--txt)}
 #chat{flex:1;overflow-y:auto;padding:12px 22px 18px;scroll-behavior:smooth}
 #statusbar{display:none;border-top:1px solid var(--line);
   padding:9px 22px;font-size:12.5px;color:var(--dim);align-items:center;gap:10px}
 #statusbar .cursor{color:var(--amber);font-weight:700}
 #statusbar b{color:var(--txt)}
 
-/* ---------- transcript records ---------- */
-.rec{background:var(--panel);border-radius:12px;margin:0 auto 10px;max-width:760px;
-  padding:2px 0 0}
-.rec.clickable{cursor:pointer;transition:background .12s}
-.rec.clickable:hover{background:var(--panel2)}
-.rec.clickable:hover .recmeta .hash{color:var(--amber)}
+/* ---------- transcript records: collapsible cards ---------- */
+.rec{background:var(--panel);border-radius:10px;margin:0 auto 6px;max-width:740px;
+  overflow:hidden}
 .rec.selected{box-shadow:0 0 0 1px var(--amber2)}
-.rechead{display:flex;align-items:center;gap:10px;padding:10px 16px 0;
-  font-size:11px;color:var(--dim);flex-wrap:wrap}
-.recno{font:600 11px var(--mono);color:var(--dim)}
-.recmode{color:var(--faint)}
-.flag{padding:1px 9px;border-radius:99px;background:var(--panel2);color:var(--dim);font-size:10.5px}
+.rechead{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;
+  font-size:11.5px;color:var(--dim);user-select:none}
+.rechead:hover{background:var(--panel2)}
+.chev{flex:none;color:var(--faint);font-size:9px;width:9px;transition:transform .15s}
+.rec.open .chev{transform:rotate(90deg)}
+.recno{flex:none;font:600 11.5px var(--mono);color:var(--dim)}
+.recmode{flex:none;color:var(--faint)}
+.rectitle{flex:1;min-width:0;color:var(--txt);font-size:12.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flag{flex:none;padding:1px 8px;border-radius:99px;background:var(--panel2);color:var(--dim);font-size:10.5px}
 .flag.warn{background:rgba(217,119,87,.13);color:var(--amber)}
 .flag.bad{background:rgba(205,111,99,.13);color:var(--red)}
 .flag.good{background:rgba(151,181,140,.13);color:var(--green)}
-.verdict{margin-left:auto;font-weight:600;font-size:11.5px}
-.verdict.ok{color:var(--green)}
-.verdict.bad{color:var(--red)}
-.recline{display:flex;gap:12px;padding:7px 16px 0}
-.recline:last-child{padding-bottom:12px}
-.recline .lbl{flex:none;width:36px;padding-top:2px;font-size:11px}
-.recline .txt{font-size:13px;word-break:break-word;min-width:0}
+.dotv{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.dotv.ok{background:var(--green)}
+.dotv.bad{background:var(--red)}
+.recbody{display:none;padding:2px 14px 12px 33px}
+.rec.open .recbody{display:block}
+.recline{display:flex;gap:10px;padding-top:8px}
+.recline .lbl{flex:none;width:34px;font-size:11px;color:var(--faint);padding-top:1px}
+.recline .txt{font-size:12.5px;line-height:1.55;word-break:break-word;min-width:0}
 .recline.plan .txt{color:var(--txt)}
 .recline.execl .txt{color:var(--dim)}
-.files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0 64px}
+.files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 0 44px}
 .file{font:11px var(--mono);background:var(--panel2);border-radius:6px;padding:2px 8px;color:var(--blue)}
-.errblock{margin:8px 16px 0 64px;border-radius:8px;padding:7px 10px;
+.errblock{margin:8px 0 0 44px;border-radius:8px;padding:7px 10px;
   font:11.5px/1.5 var(--mono);color:var(--red);word-break:break-word;
   background:rgba(205,111,99,.08)}
-.recmeta{display:flex;gap:14px;padding:8px 16px 12px 64px;font-size:11px;
-  color:var(--faint)}
-.recmeta .hash{font-family:var(--mono);color:var(--amber2)}
+.recmeta{display:flex;gap:14px;padding:10px 0 0 44px;font-size:11px;color:var(--faint)}
+.recmeta .hash{font-family:var(--mono);color:var(--amber2);cursor:pointer}
+.recmeta .hash:hover{color:var(--amber);text-decoration:underline}
 
-/* harness events */
-.evt{display:flex;align-items:center;justify-content:center;gap:8px;max-width:760px;
-  margin:2px auto 12px;color:var(--faint);font-size:11.5px;text-align:center}
+/* activity stream — lightweight, part of the flow (not floating dividers) */
+.act{display:flex;align-items:center;gap:9px;max-width:740px;margin:0 auto;
+  padding:3px 14px;color:var(--faint);font-size:11.5px}
+.act .k{color:var(--dim);font-weight:500}
+.act::before{content:"";flex:none;width:4px;height:4px;border-radius:50%;
+  background:var(--line2)}
+
+/* milestones */
+.evt{display:flex;align-items:center;justify-content:center;gap:8px;max-width:740px;
+  margin:8px auto;color:var(--faint);font-size:11.5px;text-align:center}
 .evt b{color:var(--dim)}
 .evt.finish{color:var(--amber)}
 .evt.finish b{color:var(--amber)}
@@ -175,8 +193,8 @@ textarea{resize:vertical;min-height:72px}
 .empty p{color:var(--dim);font-size:13.5px;margin-bottom:26px}
 
 /* ---------- diff register ---------- */
-#diffpane{flex:1;border-left:1px solid var(--line);display:flex;flex-direction:column;
-  min-width:0;background:var(--well)}
+#diffpane{flex:none;width:46%;min-width:240px;display:flex;flex-direction:column;
+  min-height:0;background:var(--well)}
 #diffTitle .hash{font-family:var(--mono);color:var(--amber)}
 #diff{flex:1;overflow:auto;padding:10px 22px 16px;font:11.5px/1.6 var(--mono);
   white-space:pre;color:var(--dim)}
@@ -223,6 +241,7 @@ textarea{resize:vertical;min-height:72px}
 <main id="main">
   <header id="top">
     <div id="readouts">
+      <button id="sideToggle" class="iconbtn" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
       <div class="cell goal"><span class="lbl">Goal</span><div class="val" id="topGoal">—</div></div>
       <div class="cell iter"><span class="lbl">Iter</span>
         <div class="val" id="iterRead">···<span class="cap"></span></div></div>
@@ -252,6 +271,7 @@ textarea{resize:vertical;min-height:72px}
       </div>
       <div id="statusbar"></div>
     </section>
+    <div class="gutter" id="gutter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <section id="diffpane" aria-label="diff register">
       <div class="panehead"><span id="diffTitle">Diff register</span><span id="diffPin"></span></div>
       <div id="diff"><span class="ctx">select an iteration record to inspect its commit</span></div>
@@ -293,7 +313,7 @@ textarea{resize:vertical;min-height:72px}
   <h2>Diagnostic bundle</h2>
   <div class="field"><span class="lbl">Copy this text</span>
     <textarea id="copyText" style="min-height:320px"></textarea>
-    <div class="hint">Clipboard access was unavailable, so the bundle is shown here.</div>
+    <div class="hint" id="copyHint">Clipboard access was unavailable, so the bundle is shown here.</div>
   </div>
   <div class="actions">
     <button onclick="$('copyOverlay').classList.remove('show')">Close</button>
@@ -305,6 +325,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad3 = n => String(n).padStart(3,'0');
 let current = null, pinnedCommit = null, lastDiffCommit = null, lastRender = '', lastRail = '';
+let openIters = new Set(), touched = new Set(), autoIter = null, lastEntries = [];
 
 /* instrument clock */
 setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11,19) + ' UTC'; }, 1000);
@@ -330,7 +351,11 @@ async function tickRuns(){
     '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no sessions on record</div>';
   if (html !== lastRail){ $('runlist').innerHTML = html; lastRail = html; }
 }
-function selectRun(dir){ current = dir; pinnedCommit = null; lastRender = ''; lastRail = ''; tickRun(); tickRuns(); }
+function selectRun(dir){
+  current = dir; pinnedCommit = null; lastRender = ''; lastRail = '';
+  openIters = new Set(); touched = new Set(); autoIter = null; lastEntries = [];
+  tickRun(); tickRuns();
+}
 
 /* ---------- pulse strip: the run's life as a seismograph ---------- */
 function pulseSvg(entries, running){
@@ -370,46 +395,71 @@ function flags(e){
   if (e.overflow) f.push(`<span class="flag warn">ctx overflow</span>`);
   return f.join('');
 }
+function toggleRec(it){
+  it = Number(it);
+  if (openIters.has(it)) openIters.delete(it); else openIters.add(it);
+  touched.add(it);
+  renderTranscript(lastEntries, false);
+}
 function entryHtml(e){
   if (e.event === 'activity'){
-    const kind = e.mode ? `<b>${esc(e.mode)}</b> ` : '';
-    return `<div class="evt">${kind}${esc(e.summary)}</div>`;
+    const kind = e.mode ? `<span class="k">${esc(e.mode)}</span>` : '';
+    return `<div class="act">${kind}<span>${esc(e.summary)}</span></div>`;
   }
   if (e.event === 'live'){
-    return `<article class="rec selected">
-      <div class="rechead">
+    return `<article class="rec open selected">
+      <div class="rechead" style="cursor:default">
+        <span class="chev" style="visibility:hidden">▶</span>
         <span class="recno">${pad3(e.iteration)}</span>
         <span class="recmode">${esc(e.mode)}</span>
+        <span class="rectitle">${esc(e.subtask)}</span>
         <span class="flag warn">live</span>
         <span class="verdict ok"><span class="cursor">▮</span> Running</span>
       </div>
-      <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${esc(e.subtask)}</span></div>
-      <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
-      <div class="recmeta"><span>not committed yet</span></div>
+      <div class="recbody">
+        <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
+        <div class="recmeta"><span>not committed yet</span></div>
+      </div>
     </article>`;
   }
   if (e.event === 'iteration'){
+    const open = openIters.has(e.iteration);
     const sel = pinnedCommit && e.commit === pinnedCommit ? 'selected' : '';
-    return `<article class="rec ${e.ok?'ok':'bad'} ${e.commit?'clickable':''} ${sel}"
-      ${e.commit?`onclick="loadDiff('${esc(e.commit)}', true)"`:''}>
-      <div class="rechead">
+    const title = esc(e.subtask || '(no task)');
+    return `<article class="rec ${open?'open':''} ${sel}">
+      <div class="rechead" onclick="toggleRec(${e.iteration})">
+        <span class="chev">▶</span>
         <span class="recno">${pad3(e.iteration)}</span>
         <span class="recmode">${esc(e.mode)}</span>
+        <span class="rectitle">${title}</span>
         ${flags(e)}
-        <span class="verdict ${e.ok?'ok':'bad'}">${e.ok?'✓ Passed':'✗ Failed'}</span>
+        <span class="verdict ${e.ok?'ok':'bad'}">${e.ok?'Passed':'Failed'}</span>
       </div>
-      <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${esc(e.subtask)}</span></div>
-      <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary||'(no summary)')}</span></div>
-      ${e.files.length?`<div class="files">${e.files.map(f=>`<span class="file">${esc(f)}</span>`).join('')}</div>`:''}
-      ${e.tool_runs.map(t=>`<div class="recline execl"><span class="lbl">Tool</span><span class="txt">${esc(t.name)} → ${esc(t.result)}</span></div>`).join('')}
-      ${e.errors.length?`<div class="errblock">${e.errors.map(x=>esc(x)).join('<br>')}</div>`:''}
-      <div class="recmeta">${e.commit?`<span class="hash">${esc(e.commit)}</span><span>click to inspect diff</span>`:'<span>no commit</span>'}</div>
+      <div class="recbody">
+        <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${title}</span></div>
+        <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary||'(no summary)')}</span></div>
+        ${e.files.length?`<div class="files">${e.files.map(f=>`<span class="file">${esc(f)}</span>`).join('')}</div>`:''}
+        ${e.tool_runs.map(t=>`<div class="recline execl"><span class="lbl">Tool</span><span class="txt">${esc(t.name)} → ${esc(t.result)}</span></div>`).join('')}
+        ${e.errors.length?`<div class="errblock">${e.errors.map(x=>esc(x)).join('<br>')}</div>`:''}
+        <div class="recmeta">${e.commit?`<span class="hash" onclick="event.stopPropagation();loadDiff('${esc(e.commit)}',true)">${esc(e.commit)}</span><span>view diff →</span>`:'<span>no commit</span>'}</div>
+      </div>
     </article>`;
   }
   if (e.event === 'finished') return `<div class="evt finish"><b>◉ goal complete</b> ${esc(e.summary)}</div>`;
   if (e.event === 'shutdown') return `<div class="evt">■ stopped — <b>${esc(e.summary)}</b></div>`;
   if (e.event === 'startup')  return `<div class="evt">▶ ${esc(e.summary)}</div>`;
   return `<div class="evt"><b>${esc(e.event)}</b> ${esc(e.summary)}</div>`;
+}
+
+function renderTranscript(entries, allowScroll){
+  const html = entries.map(entryHtml).join('') ||
+    '<div class="empty"><p>spinning up…</p></div>';
+  if (html === lastRender) return;
+  const chat = $('chat');
+  const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 160;
+  chat.innerHTML = html;
+  if (allowScroll && nearBottom) chat.scrollTop = chat.scrollHeight;
+  lastRender = html;
 }
 
 async function tickRun(){
@@ -437,18 +487,20 @@ async function tickRun(){
     $('livehint').textContent = 'live · polling 2s';
   } else { sb.style.display = 'none'; $('livehint').textContent = ''; }
 
-  const html = r.entries.map(entryHtml).join('') ||
-    '<div class="empty"><p>spinning up…</p></div>';
-  if (html !== lastRender){
-    const chat = $('chat');
-    const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 160;
-    chat.innerHTML = html;
-    if (nearBottom) chat.scrollTop = chat.scrollHeight;
-    lastRender = html;
-    if (!pinnedCommit){
-      const commits = r.entries.filter(e => e.commit && e.event === 'iteration');
-      if (commits.length) loadDiff(commits[commits.length-1].commit, false);
-    }
+  // auto-expand the newest iteration; auto-collapse the previous one unless the
+  // user has manually toggled it. Manual choices always win.
+  const iterNums = r.entries.filter(e => e.event === 'iteration').map(e => e.iteration);
+  const latestIter = iterNums.length ? Math.max(...iterNums) : null;
+  if (latestIter !== null && latestIter !== autoIter){
+    if (autoIter !== null && !touched.has(autoIter)) openIters.delete(autoIter);
+    if (!touched.has(latestIter)) openIters.add(latestIter);
+    autoIter = latestIter;
+  }
+  lastEntries = r.entries;
+  renderTranscript(r.entries, true);
+  if (!pinnedCommit){
+    const commits = r.entries.filter(e => e.commit && e.event === 'iteration');
+    if (commits.length) loadDiff(commits[commits.length-1].commit, false);
   }
 }
 
@@ -496,9 +548,13 @@ $('copyBtn').onclick = async () => {
   try{
     await navigator.clipboard.writeText(r.text);
     btn.textContent = `Copied ${Math.round((r.chars||r.text.length)/1000)}k`;
+    if (r.path) btn.textContent += ' · saved';
     setTimeout(()=>btn.textContent=old, 1800);
   }catch(e){
     $('copyText').value = r.text;
+    $('copyHint').textContent = r.path
+      ? `Clipboard access was unavailable. The same bundle was saved to ${r.path}.`
+      : 'Clipboard access was unavailable, so the bundle is shown here.';
     $('copyOverlay').classList.add('show');
     $('copyText').focus();
     $('copyText').select();
@@ -554,6 +610,33 @@ async function startSession(){
   btn.disabled = false; btn.textContent = 'Start';
   closeNew(); selectRun(r.dir);
 }
+
+/* ---------- sidebar collapse ---------- */
+$('sideToggle').onclick = () => $('side').classList.toggle('collapsed');
+
+/* ---------- resizable transcript / diff split ---------- */
+(function(){
+  const gutter = $('gutter'), pane = $('diffpane'), panes = $('panes');
+  let dragging = false;
+  gutter.addEventListener('mousedown', e => {
+    dragging = true; gutter.classList.add('drag');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const rect = panes.getBoundingClientRect();
+    let w = rect.right - e.clientX;                 // diff pane is on the right
+    w = Math.max(240, Math.min(w, rect.width - 320)); // clamp both sides
+    pane.style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; gutter.classList.remove('drag');
+    document.body.style.cursor = ''; document.body.style.userSelect = '';
+  });
+})();
 
 tickRuns(); setInterval(tickRuns, 2500); setInterval(tickRun, 2000);
 </script></body></html>"""

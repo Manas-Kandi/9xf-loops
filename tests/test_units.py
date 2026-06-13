@@ -4,6 +4,7 @@ parser, fitness, config presets."""
 from __future__ import annotations
 
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,10 +15,12 @@ from ninexf.config import PRESETS, Config, load_config, write_config
 from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
+from ninexf.loop import ExecOutcome, _repair_file_dump
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
+from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle
 from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
     parse_task_ref_num, parse_verify_output, sanitize_decomposition,
@@ -106,6 +109,7 @@ class TestTasks(unittest.TestCase):
         self.assertIn("Build a widget", contract)
         self.assertIn("Create src/widget.py", contract)
         self.assertIn("Tests must be deterministic", contract)
+        self.assertIn("Entry points and demos must be bounded", contract)
 
     def test_verify_output(self):
         passed, failed = parse_verify_output(
@@ -306,6 +310,22 @@ class TestParserNotes(unittest.TestCase):
 
 
 class TestValidationEvidence(unittest.TestCase):
+    def test_entry_point_sleep_is_rejected_before_timeout(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        src = d / "src" / "main.py"
+        src.write_text(
+            "import time\n\n"
+            "def main():\n"
+            "    time.sleep(1)\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        )
+        result = validate(d, [src], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "slow_entry")
+        self.assertIn("slow_entry", result.errors[0])
+
     def test_unittest_error_excerpt_keeps_traceback(self):
         d = Path(tempfile.mkdtemp())
         (d / "src").mkdir()
@@ -385,6 +405,56 @@ class TestValidationEvidence(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.failure_kind, "slow_test")
         self.assertIn("wall-clock", "\n".join(result.errors))
+
+
+class TestRepairEvidence(unittest.TestCase):
+    def test_repair_dump_includes_traceback_referenced_files(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        (d / "tests").mkdir()
+        main = d / "src" / "main.py"
+        progress = d / "src" / "progress_bar.py"
+        test = d / "tests" / "test_progress_bar.py"
+        main.write_text("from progress_bar import ProgressBar\n")
+        progress.write_text("class ProgressBar:\n    pass\n")
+        test.write_text("from src.progress_bar import ProgressBar\n")
+        parsed = parse_executor_output(
+            "SUMMARY: added demo\n"
+            "FILE: src/main.py\n"
+            "```python\nfrom progress_bar import ProgressBar\n```\n"
+        )
+        outcome = ExecOutcome(
+            parsed=parsed,
+            written=[main],
+            errors=[
+                f'File "{progress}", line 2, in write\n'
+                "AttributeError: bad\n"
+                "tests/test_progress_bar.py: failed assertion"
+            ],
+        )
+        dump = _repair_file_dump(d, outcome, 10000)
+        self.assertIn("--- src/main.py ---", dump)
+        self.assertIn("--- src/progress_bar.py ---", dump)
+        self.assertIn("--- tests/test_progress_bar.py ---", dump)
+
+
+class TestDiagnosticExport(unittest.TestCase):
+    def test_export_saves_bundle_file(self):
+        d = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+        (d / "goal.txt").write_text("Build a thing\n")
+        (d / "state.json").write_text(
+            '{"activity":[{"ts":"now","iteration":1,"kind":"write","message":"writing src/main.py"}]}'
+        )
+        bundle = export_diagnostic_bundle(d)
+        saved = d / DIAGNOSTIC_BUNDLE_FILENAME
+        self.assertEqual(bundle["path"], str(saved))
+        self.assertTrue(saved.exists())
+        text = saved.read_text()
+        self.assertIn("9XF DIAGNOSTIC BUNDLE", text)
+        self.assertIn("live activity stream", text)
+        exclude = (d / ".git" / "info" / "exclude").read_text()
+        self.assertIn(f"/{DIAGNOSTIC_BUNDLE_FILENAME}", exclude)
 
 
 if __name__ == "__main__":

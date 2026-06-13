@@ -44,7 +44,7 @@ class LogEntry:
     explore: dict = field(default_factory=dict)  # {a: {...}, b: {...}, winner} on explore events
     repairs: list[dict] = field(default_factory=list)  # in-iteration repair attempts {attempt, errors_before, passed}
     context_overflow: bool = False  # a prompt filled num_ctx (silent top-truncation risk)
-    failure_kind: str = ""  # compile | import | entry | tests | timeout | slow_test | tool | parse
+    failure_kind: str = ""  # compile | import | entry | slow_entry | tests | timeout | slow_test | tool | parse
     error_signature: str = ""  # normalized first-error signature for stuck/diagnosis
     error_excerpt: str = ""  # capped actionable validation evidence
     diagnosis: str = ""  # optional no-write diagnosis before repeated repairs

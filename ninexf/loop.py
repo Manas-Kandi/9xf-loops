@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import signal
 import time
+import re
 from pathlib import Path
 
 from dataclasses import dataclass, field
@@ -68,6 +69,63 @@ MAX_CONSECUTIVE_BACKEND_FAILURES = 3
 MAX_REVERTS_TO_SAME_COMMIT = 2
 CRITIC_DIFF_CHARS = 6000
 REPAIR_FILES_CHARS = 12000  # how much of the broken files the repair prompt shows
+REPAIR_CONTEXT_DIRS = {"src", "tests", "tools"}
+VALIDATION_TOOL_NAMES = {"unittest"}
+
+
+def _add_repair_path(project_dir: Path, rels: list[str], path: Path) -> None:
+    try:
+        rel = path.resolve().relative_to(project_dir.resolve())
+    except (OSError, ValueError):
+        try:
+            rel = path.relative_to(project_dir)
+        except ValueError:
+            return
+    if not rel.parts or rel.parts[0] not in REPAIR_CONTEXT_DIRS:
+        return
+    candidate = project_dir / rel
+    if not candidate.is_file():
+        return
+    rendered = str(rel)
+    if rendered not in rels:
+        rels.append(rendered)
+
+
+def _repair_context_paths(project_dir: Path, outcome: ExecOutcome) -> list[str]:
+    """Files to show in repair prompts: written files plus traceback paths."""
+    rels: list[str] = []
+    for path in outcome.written:
+        _add_repair_path(project_dir, rels, path)
+    evidence = "\n".join([*outcome.errors, outcome.error_excerpt])
+    for quoted in re.findall(r'File "([^"]+)"', evidence):
+        path = Path(quoted)
+        _add_repair_path(project_dir, rels, path if path.is_absolute() else project_dir / path)
+    for token in re.findall(r"(?<![\w./-])((?:src|tests|tools)/[A-Za-z0-9_.\-/]+)", evidence):
+        _add_repair_path(project_dir, rels, project_dir / token.rstrip(".,:;)]}'\""))
+    return rels
+
+
+def _repair_file_dump(project_dir: Path, outcome: ExecOutcome, max_chars: int) -> str:
+    blocks = []
+    for rel in _repair_context_paths(project_dir, outcome):
+        p = project_dir / rel
+        try:
+            body = p.read_text(errors="replace")
+        except OSError as e:
+            body = f"(unreadable: {e})"
+        blocks.append(f"--- {rel} ---\n{body}")
+    if not blocks and outcome.parsed.files:
+        blocks = [f"--- {path} ---\n{body}" for path, body in outcome.parsed.files.items()]
+    return ("\n".join(blocks) or "(no parseable FILE blocks in the previous output)")[:max_chars]
+
+
+def _validation_tool_notice(name: str, args: str) -> str:
+    if name in VALIDATION_TOOL_NAMES:
+        return (
+            "ignored: unittest discovery is run automatically by harness validation; "
+            "RUN_TOOL only executes existing helper scripts in tools/"
+        )
+    return ""
 
 
 @dataclass
@@ -549,9 +607,10 @@ class LoopRunner:
         if acc_passed is False:
             errors.append(f"held-out acceptance suite failed ({acc_ran} tests)")
 
+        harness_green = result.passed and acc_passed is not False
         criteria = load_criteria(self.project_dir)
         failed: dict[int, str] = {}
-        if criteria:
+        if harness_green and criteria:
             codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget)
             validation_text = result.detail + (
                 "; errors: " + "; ".join(result.errors) if result.errors else " (all green)")
@@ -569,7 +628,6 @@ class LoopRunner:
                 if num not in passed_nums and num not in failed:
                     failed[num] = "no verdict from model"
 
-        harness_green = result.passed and acc_passed is not False
         if harness_green and not failed:
             summary = "goal complete: harness validation green and all acceptance criteria passed"
             event = "finished"
@@ -588,9 +646,14 @@ class LoopRunner:
                 corrective.append("Fix the failing held-out acceptance tests "
                                   "(run via the acceptance criteria — the suite itself is read-only)")
             append_tasks(self.project_dir, corrective)
-            summary = (f"verify-done: {len(failed)} criteria failed, "
-                       f"validation {'green' if result.passed else 'FAILED'}; "
-                       f"added {len(corrective)} corrective task(s)")
+            if harness_green:
+                summary = (f"verify-done: {len(failed)} criteria failed, "
+                           "validation green; "
+                           f"added {len(corrective)} corrective task(s)")
+            else:
+                summary = (f"verify-done: validation "
+                           f"{'green' if result.passed else 'FAILED'}; "
+                           f"added {len(corrective)} corrective task(s)")
         print(f"[9xf]   {summary}")
 
         tl = load_tasks(self.project_dir)
@@ -720,13 +783,11 @@ class LoopRunner:
             attempt += 1
             append_activity(self.project_dir, f"repair attempt {attempt}",
                             iteration=iteration, kind="repair")
-            if outcome.parsed.files:
-                dump = "\n".join(f"--- {path} ---\n{body}"
-                                 for path, body in outcome.parsed.files.items())
-                dump = dump[:REPAIR_FILES_CHARS]
-            else:
-                dump = "(no parseable FILE blocks in the previous output)"
-            errors = "; ".join(str(e) for e in outcome.errors)[:1500] or "(none recorded)"
+            dump = _repair_file_dump(self.project_dir, outcome, REPAIR_FILES_CHARS)
+            errors = "\n".join(str(e) for e in outcome.errors)
+            if outcome.error_excerpt and outcome.error_excerpt not in errors:
+                errors += "\n\n" + outcome.error_excerpt
+            errors = errors[:3500] or "(none recorded)"
             repair_user = executor_user + REPAIR_NOTE.format(files=dump, errors=errors)
             new = self._execute_once(iteration, subtask, repair_user, None)
             repairs.append({
@@ -883,6 +944,13 @@ class LoopRunner:
             for name, args in parsed.tool_runs[: cfg.max_tool_runs_per_iteration]:
                 append_activity(self.project_dir, f"running tool {name} {args}".strip(),
                                 iteration=iteration, kind="tool")
+                notice = _validation_tool_notice(name, args)
+                if notice:
+                    tool_runs.append({"name": name, "args": args, "result": notice})
+                    append_activity(self.project_dir, f"ignored RUN_TOOL {name}: validation handles it",
+                                    iteration=iteration, kind="tool")
+                    print(f"[9xf]   tool {name} {args}: {notice[:120]}")
+                    continue
                 result = run_tool(self.project_dir, name, args,
                                   cfg.validation_timeout, cfg.allow_network)
                 tool_runs.append({"name": name, "args": args, "result": result})

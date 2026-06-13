@@ -73,6 +73,17 @@ def _run_status(state: dict, delay: float, last_iter_ok: bool | None) -> str:
     return "running" if age < delay + STALE_GRACE_S else "stale"
 
 
+def _recency(d: Path, state: dict) -> float:
+    """Best-effort 'last touched' time for ordering runs newest-first."""
+    best = 0.0
+    for rel in ("state.json", "loop_log.jsonl", GOAL_FILENAME):
+        try:
+            best = max(best, (d / rel).stat().st_mtime)
+        except OSError:
+            pass
+    return best
+
+
 def collect_runs() -> list[dict]:
     runs = []
     for d in registered_runs():
@@ -92,6 +103,7 @@ def collect_runs() -> list[dict]:
             "dir": str(d),
             "name": d.name,
             "goal": (d / GOAL_FILENAME).read_text().strip(),
+            "updated": _recency(d, state),
             "model": model,
             "status": _run_status(state, delay, last.get("validation_passed")),
             "stopped_reason": state.get("stopped_reason", ""),
@@ -124,6 +136,7 @@ def collect_runs() -> list[dict]:
             "last_commit": _last_commit(d),
             "stop_present": (d / STOP_FILENAME).exists(),
         })
+    runs.sort(key=lambda r: r["updated"], reverse=True)  # newest first
     return runs
 
 
