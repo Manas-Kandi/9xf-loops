@@ -107,7 +107,7 @@ def _pick_model() -> str:
         if model not in installed:
             suffix = " (recommended; install with `ollama pull gpt-oss:20b`)" if model == GPT_OSS_20B_MODEL else " (recommended)"
         options.append((str(i), f"{model}{suffix}"))
-    options.append(("0", "type something else (e.g. anthropic/claude-sonnet-4-6)"))
+    options.append(("0", "type something else (e.g. nvidia/moonshotai/kimi-k2.6)"))
     title = "Pick a model"
     if models:
         title += " (installed Ollama models first)"

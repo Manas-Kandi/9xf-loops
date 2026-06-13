@@ -6,6 +6,7 @@ The config is written once by `9xf init` and never modified by the agent.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,7 @@ DEFAULTS = {
     "model": DEFAULT_MODEL,
     "endpoint": "http://localhost:11434",
     "backend_timeout": 900,
+    "max_tokens": 16384,
     "max_iterations": 50,
     "delay_seconds": 5,
     "validation_timeout": 10,
@@ -54,7 +56,10 @@ DEFAULTS = {
     "max_hours": 0,  # wall-clock budget for a run (0 = no time limit)
     "num_ctx": 16384,  # ollama context window
     "temperature": 0.4,  # default sampling temperature (best-of-N still varies it)
+    "top_p": 1.0,
 }
+
+NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1"
 
 # Named presets applied at init (`9xf init --preset overnight`). A preset is a
 # layer between DEFAULTS and explicit CLI overrides. "overnight" trades wall
@@ -106,6 +111,7 @@ class Config:
     model: str = DEFAULTS["model"]
     endpoint: str = DEFAULTS["endpoint"]
     backend_timeout: float = DEFAULTS["backend_timeout"]
+    max_tokens: int = DEFAULTS["max_tokens"]
     max_iterations: int = DEFAULTS["max_iterations"]
     delay_seconds: float = DEFAULTS["delay_seconds"]
     validation_timeout: float = DEFAULTS["validation_timeout"]
@@ -144,6 +150,7 @@ class Config:
     max_hours: float = DEFAULTS["max_hours"]
     num_ctx: int = DEFAULTS["num_ctx"]
     temperature: float = DEFAULTS["temperature"]
+    top_p: float = DEFAULTS["top_p"]
     extra: dict = field(default_factory=dict)
 
     @property
@@ -169,7 +176,39 @@ class Config:
         return self.model.split("/", 1)[1] if "/" in self.model else self.model
 
 
+def _parse_env_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    if "#" in value:
+        value = value.split("#", 1)[0].rstrip()
+    return value
+
+
+def load_dotenv(project_dir: Path) -> None:
+    """Load simple KEY=VALUE lines from .env without overriding real env vars."""
+    for path in (Path.cwd() / ".env", project_dir / ".env"):
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if key.startswith("export "):
+                key = key.removeprefix("export ").strip()
+            if not key or key in os.environ:
+                continue
+            os.environ[key] = _parse_env_value(value)
+
+
 def load_config(project_dir: Path) -> Config:
+    load_dotenv(project_dir)
     path = project_dir / CONFIG_FILENAME
     if not path.exists():
         raise FileNotFoundError(
@@ -190,6 +229,11 @@ def write_config(project_dir: Path, overrides: dict | None = None,
         data.update(PRESETS[preset])
     if overrides:
         data.update({k: v for k, v in overrides.items() if v is not None})
+    if str(data.get("model", "")).startswith("nvidia/"):
+        if data.get("endpoint") == DEFAULTS["endpoint"]:
+            data["endpoint"] = NVIDIA_ENDPOINT
+        if data.get("api_key_env") == DEFAULTS["api_key_env"]:
+            data["api_key_env"] = "NVIDIA_API_KEY"
     path = project_dir / CONFIG_FILENAME
     path.write_text(json.dumps(data, indent=2) + "\n")
     return path

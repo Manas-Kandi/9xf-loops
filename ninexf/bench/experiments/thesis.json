@@ -1,21 +1,35 @@
 {
   "name": "thesis",
-  "description": "The core question: does a 7B local model + overnight verified search approach a frontier model? Each cell gets the SAME per-task budget; only the model and the amount of search differ. Tune max_iterations/max_hours per cell for how long you want to run.",
+  "description": "The core question: does a smaller cloud-hosted model + overnight verified search approach a stronger cloud model? NVIDIA-hosted inference avoids local compute variance; each cell gets the SAME per-task budget, and only the model/search condition differs. Tune max_iterations/max_hours per cell for how long you want to run.",
   "seeds": 3,
-  "reference_cell": "frontier-baseline",
+  "reference_cell": "kimi-baseline",
   "tasks": ["*"],
   "cells": [
     {
-      "label": "7b-overnight",
-      "model": "ollama/qwen2.5-coder:7b",
+      "label": "qwen-cloud-overnight",
+      "model": "nvidia/qwen/qwen3.5-122b-a10b",
       "preset": "overnight",
-      "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0}
+      "overrides": {
+        "max_iterations": 200,
+        "max_hours": 0.5,
+        "delay_seconds": 0,
+        "api_key_env": "NVIDIA_API_KEY",
+        "temperature": 0.6,
+        "top_p": 0.95
+      }
     },
     {
-      "label": "frontier-baseline",
-      "model": "anthropic/claude-sonnet-4-6",
+      "label": "kimi-baseline",
+      "model": "nvidia/moonshotai/kimi-k2.6",
       "preset": "baseline",
-      "overrides": {"max_iterations": 30, "max_hours": 0.5, "delay_seconds": 0}
+      "overrides": {
+        "max_iterations": 30,
+        "max_hours": 0.5,
+        "delay_seconds": 0,
+        "api_key_env": "NVIDIA_API_KEY",
+        "temperature": 1.0,
+        "top_p": 1.0
+      }
     }
   ]
 }

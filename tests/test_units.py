@@ -3,20 +3,21 @@ parser, fitness, config presets."""
 
 from __future__ import annotations
 
+import os
 import tempfile
 import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from ninexf.backends import BackendError, OllamaBackend, _post_json, context_overflowed
+from ninexf.backends import BackendError, NvidiaBackend, OllamaBackend, _post_json, context_overflowed
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
-from ninexf.config import PRESETS, Config, load_config, write_config
+from ninexf.config import PRESETS, Config, load_config, load_dotenv, write_config
 from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.loop_common import ExecOutcome, _repair_file_dump
-from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, model_options
+from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.relevance import score_files
@@ -196,6 +197,35 @@ class TestBackendAndStatus(unittest.TestCase):
             self.assertEqual(backend.complete("system", "user"), "ok")
         self.assertEqual(post.call_args.kwargs["timeout"], 123)
 
+    def test_nvidia_backend_uses_chat_completions_payload(self):
+        cfg = Config(
+            model=NVIDIA_KIMI_MODEL,
+            backend_timeout=123,
+            temperature=1.0,
+            top_p=1.0,
+            max_tokens=16384,
+        )
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}):
+            backend = NvidiaBackend(cfg)
+        with mock.patch(
+            "ninexf.backends._post_json",
+            return_value={"choices": [{"message": {"content": "ok"}}]},
+        ) as post:
+            self.assertEqual(backend.complete("system", "user"), "ok")
+        url, payload = post.call_args.args[:2]
+        self.assertEqual(url, "https://integrate.api.nvidia.com/v1/chat/completions")
+        self.assertEqual(payload["model"], "moonshotai/kimi-k2.6")
+        self.assertEqual(payload["temperature"], 1.0)
+        self.assertEqual(payload["top_p"], 1.0)
+        self.assertEqual(payload["max_tokens"], 16384)
+        self.assertEqual(post.call_args.kwargs["timeout"], 123)
+
+    def test_nvidia_backend_defaults_to_nvidia_api_key_env(self):
+        cfg = Config(model=NVIDIA_KIMI_MODEL)
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(BackendError, "NVIDIA_API_KEY"):
+                NvidiaBackend(cfg)
+
     def test_running_state_with_dead_pid_is_failed(self):
         state = {"running": True, "pid": 12345, "ts": "2026-06-12T03:38:59+00:00"}
         with mock.patch("ninexf.dashboard._pid_alive", return_value=False):
@@ -319,6 +349,26 @@ class TestPresets(unittest.TestCase):
     def test_unknown_preset_rejected(self):
         with self.assertRaises(ValueError):
             write_config(Path(tempfile.mkdtemp()), preset="nope")
+
+    def test_load_dotenv_reads_project_env_without_overriding(self):
+        d = Path(tempfile.mkdtemp())
+        (d / ".env").write_text(
+            "NVIDIA_API_KEY=from-file\n"
+            "export QUOTED_KEY=\"quoted value\"\n"
+            "COMMENTED=value # comment\n"
+        )
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "from-env"}, clear=True):
+            load_dotenv(d)
+            self.assertEqual(os.environ["NVIDIA_API_KEY"], "from-env")
+            self.assertEqual(os.environ["QUOTED_KEY"], "quoted value")
+            self.assertEqual(os.environ["COMMENTED"], "value")
+
+    def test_nvidia_config_writes_provider_defaults(self):
+        d = Path(tempfile.mkdtemp())
+        write_config(d, {"model": NVIDIA_KIMI_MODEL})
+        cfg = load_config(d)
+        self.assertEqual(cfg.api_key_env, "NVIDIA_API_KEY")
+        self.assertEqual(cfg.endpoint, "https://integrate.api.nvidia.com/v1")
 
     def test_presets_only_use_known_keys(self):
         from ninexf.config import DEFAULTS

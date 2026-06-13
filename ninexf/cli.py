@@ -11,7 +11,7 @@ from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.config import PRESETS, load_config, write_config
 from ninexf.gitops import commit_all, init_repo
 from ninexf.looplog import read_entries
-from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL
+from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL
 from ninexf.registry import register_run
 
 
@@ -274,7 +274,7 @@ def main(argv=None):
     p.add_argument("--goal", required=True, help="the high-level goal (the unchanging north star)")
     p.add_argument("--model", default=None,
                    help=f"e.g. {DEFAULT_MODEL}, {GPT_OSS_20B_MODEL}, "
-                        "anthropic/claude-sonnet-4-6, mock")
+                        f"{NVIDIA_KIMI_MODEL}, mock")
     p.add_argument("--max-iterations", type=int, default=None)
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")
     p.add_argument("--allow-network", action="store_true",

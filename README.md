@@ -340,6 +340,12 @@ Set in `9xf.config.json` (written at init, never modified by the agent):
 - `ollama/<model>` — local, default (`ollama/qwen2.5-coder:7b`); endpoint
   configurable via `endpoint`. Recommended options include
   `ollama/qwen2.5-coder:7b` and `ollama/gpt-oss:20b`.
+- `nvidia/<model>` — NVIDIA Integrate / NIM cloud inference via the
+  OpenAI-compatible chat-completions API. Reads `NVIDIA_API_KEY` by default;
+  `.env` is loaded from the current working directory and run folder when
+  present. Endpoint defaults to `https://integrate.api.nvidia.com/v1`.
+  Benchmark models include `nvidia/qwen/qwen3.5-122b-a10b` and
+  `nvidia/moonshotai/kimi-k2.6`.
 - `anthropic/<model>` — API mode for comparison runs; reads the key from the
   env var named by `api_key_env` (default `ANTHROPIC_API_KEY`)
 - `mock` — deterministic scripted backend for testing the harness itself.

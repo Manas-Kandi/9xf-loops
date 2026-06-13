@@ -1,4 +1,4 @@
-"""Model backends: ollama (local, default), anthropic (API), mock (harness testing).
+"""Model backends: ollama (local, default), nvidia/anthropic (API), mock.
 
 All backends expose one method: complete(system, user) -> str.
 Stdlib-only — HTTP via urllib so the harness has zero pip dependencies.
@@ -12,7 +12,7 @@ import socket
 import urllib.error
 import urllib.request
 
-from ninexf.config import Config
+from ninexf.config import DEFAULTS, NVIDIA_ENDPOINT, Config
 
 
 class BackendError(Exception):
@@ -136,6 +136,73 @@ class AnthropicBackend(Backend):
         if not text:
             raise BackendError(f"empty response from anthropic: {json.dumps(data)[:300]}")
         return text
+
+
+def _api_key_env(config: Config, provider_default: str) -> str:
+    """Use provider-specific API key env vars unless the config explicitly opts out."""
+    if config.api_key_env == DEFAULTS["api_key_env"]:
+        return provider_default
+    return config.api_key_env
+
+
+class NvidiaBackend(Backend):
+    """NVIDIA NIM / Integrate chat-completions backend.
+
+    Model strings use the normal 9xf convention, for example:
+      nvidia/moonshotai/kimi-k2.6
+      nvidia/qwen/qwen3.5-122b-a10b
+    """
+
+    def __init__(self, config: Config):
+        super().__init__()
+        self.model = config.model_name
+        self.timeout = config.backend_timeout
+        self.endpoint = config.endpoint.rstrip("/")
+        if self.endpoint == DEFAULTS["endpoint"]:
+            self.endpoint = NVIDIA_ENDPOINT
+        self.default_temperature = config.temperature
+        self.top_p = config.top_p
+        self.max_tokens = config.max_tokens
+        self.api_key_env = _api_key_env(config, "NVIDIA_API_KEY")
+        self.api_key = os.environ.get(self.api_key_env, "")
+        if not self.api_key:
+            raise BackendError(
+                f"API mode requires {self.api_key_env} to be set in the environment"
+            )
+
+    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": self.max_tokens,
+            "temperature": temperature if temperature is not None
+            else self.default_temperature,
+            "top_p": self.top_p,
+            "stream": False,
+        }
+        data = _post_json(
+            f"{self.endpoint}/chat/completions",
+            payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Accept": "application/json",
+            },
+            timeout=self.timeout,
+        )
+        choices = data.get("choices") or []
+        message = choices[0].get("message", {}) if choices else {}
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        if not content:
+            raise BackendError(f"empty response from nvidia: {json.dumps(data)[:300]}")
+        return str(content)
 
 
 class MockBackend(Backend):
@@ -781,7 +848,12 @@ def make_backend(config: Config) -> Backend:
         return OllamaBackend(config)
     if provider == "anthropic":
         return AnthropicBackend(config)
+    if provider == "nvidia":
+        return NvidiaBackend(config)
     if provider == "mock":
         scenario = config.model.split("/", 1)[1] if "/" in config.model else ""
         return MockBackend(scenario)
-    raise BackendError(f"unknown provider {provider!r} (use ollama/<model>, anthropic/<model>, or mock)")
+    raise BackendError(
+        f"unknown provider {provider!r} "
+        "(use ollama/<model>, nvidia/<model>, anthropic/<model>, or mock)"
+    )
