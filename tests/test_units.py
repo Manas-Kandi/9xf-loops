@@ -22,7 +22,7 @@ from ninexf.loop_common import ExecOutcome, _repair_file_dump
 from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
-from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, REPAIR_NOTE
+from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, PLANNER_SYSTEM, REPAIR_NOTE
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
 from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle
@@ -106,6 +106,38 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(tasks, ["Create src/main.py"])
         self.assertEqual(criteria, ["Running `python src/main.py` exits with code 0"])
         self.assertEqual(rejected, [])
+
+    def test_sanitize_ignores_slash_separated_chart_alternatives(self):
+        tasks, criteria, rejected = sanitize_decomposition(
+            "Write a single html css javascript dashboard with charts",
+            [
+                "Create src/index.html with metric cards and visible SVG chart marks.",
+                "Add a second chart type (e.g., pie/donut or area chart) using SVG in src/dashboard.js, driven by sample data.",
+                "Create src/styles.css with responsive grid layout and polished dashboard card styling.",
+            ],
+            [
+                "Generated dashboard shows at least three visible metric cards with numeric values.",
+                "Generated dashboard includes SVG bar/point chart marks and a pie/donut chart with visible data.",
+                "Generated dashboard loads local CSS with responsive grid layout and distinct metric-card colors.",
+                "Moving the mouse over either chart highlights the nearest bar/point and displays a tooltip.",
+            ],
+        )
+        self.assertEqual(len(tasks), 3)
+        self.assertEqual(len(criteria), 4)
+        self.assertFalse(any("non-writable/root path" in r for r in rejected), rejected)
+
+    def test_sanitize_still_rejects_root_level_ui_paths(self):
+        tasks, criteria, rejected = sanitize_decomposition(
+            "Write a dashboard",
+            ["Create index.html, styles.css, and script.js in the repo."],
+            [
+                "Dashboard shows three numeric metric values.",
+                "Dashboard includes visible SVG chart marks.",
+                "Dashboard uses responsive CSS grid layout.",
+            ],
+        )
+        self.assertEqual(tasks, [])
+        self.assertTrue(any("non-writable/root path" in r for r in rejected), rejected)
 
     def test_dashboard_scaffold_decomposition_is_rejected(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -408,9 +440,11 @@ class TestContextSafety(unittest.TestCase):
         self.assertFalse(context_overflowed(None, 16384))
 
     def test_prompts_prevent_future_module_imports_in_entry_point(self):
+        self.assertIn("src/index.html", PLANNER_SYSTEM)
         self.assertIn("validation-green", DECOMPOSE_USER)
         self.assertIn("must not import modules that do not exist yet", DECOMPOSE_USER)
         self.assertIn("not already present in CURRENT CODEBASE", EXECUTOR_SYSTEM)
+        self.assertIn("do not write root-level", EXECUTOR_SYSTEM)
         self.assertIn("do not use package-relative", EXECUTOR_SYSTEM)
         self.assertIn("Do not \"fix\" `python src/main.py`", REPAIR_NOTE)
 

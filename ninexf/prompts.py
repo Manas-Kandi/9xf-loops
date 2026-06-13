@@ -10,6 +10,9 @@ high-level goal, the current state of a codebase, and a log of what previous
 iterations already did. Reply with the single most useful next step as ONE
 short, specific, actionable instruction (one or two sentences). Do not write
 code. Do not repeat work the log shows was already completed successfully.
+All implementation files must be inside src/, tests/, or tools/. For web UI
+work, propose paths such as src/index.html, src/styles.css, and src/script.js,
+not repo-root index.html/styles.css/script.js.
 Reply with the instruction only — no preamble, no numbering, no markdown."""
 
 PLANNER_USER = """\
@@ -206,6 +209,8 @@ Rules:
   tests in tests/, helper scripts in tools/. Do not require virtualenvs,
   activation, package installs, root-level files, flake8, pytest, npm, pip,
   or any unavailable external tool unless the goal explicitly asks for it.
+- For web UI files, use `src/index.html`, `src/styles.css`, and `src/script.js`
+  rather than root-level `index.html`, `styles.css`, or `script.js`.
 - Do not require generated files to be empty; useful entry points and modules
   should contain behavior.
 - Entry points and demos must be bounded and fast: no sleeps, infinite loops,
@@ -383,6 +388,9 @@ Output format — follow it EXACTLY:
 
 Rules:
 - File paths must be relative and inside `src/`, `tests/`, or `tools/` only.
+  For web UI work, use paths such as `src/index.html`, `src/styles.css`, and
+  `src/script.js`; do not write root-level `index.html`, `styles.css`, or
+  `script.js`.
 - Rewrite whole files; partial edits are not supported.
 - Every response must leave the project runnable and validation-green. Do not
   import modules that are not already present in CURRENT CODEBASE unless you

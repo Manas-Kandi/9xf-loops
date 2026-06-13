@@ -83,6 +83,14 @@ ROOT_WRITE_PATTERNS = (
 )
 
 ALLOWED_GENERATED_DIRS = {"src", "tests", "tools"}
+COMMON_NONWRITABLE_DIRS = {
+    "app", "apps", "assets", "css", "dist", "docs", "js", "lib", "public",
+    "scripts", "static", "styles",
+}
+ROOT_FILE_RE = re.compile(
+    r"(?<![\w/.-])[\w.-]+\.(?:html|css|js|mjs|ts|tsx|jsx|py)(?![\w/.-])",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -200,10 +208,33 @@ def parse_decomposition(text: str) -> tuple[list[str], list[str]]:
     return tasks, criteria
 
 
+def _path_token(token: str) -> str:
+    return token.strip(".,;:()[]{}\"'")
+
+
+def _looks_like_path(token: str) -> bool:
+    """Separate real paths from English alternatives like pie/donut or bar/point."""
+    if "/" not in token:
+        return False
+    if token.startswith(("/", "./", "../", "~/")):
+        return True
+    parts = [p for p in token.split("/") if p]
+    if not parts:
+        return False
+    first = parts[0]
+    if first in ALLOWED_GENERATED_DIRS or first in COMMON_NONWRITABLE_DIRS:
+        return True
+    # dashboard.js, index.html, test_main.py, etc. are much more likely paths
+    # than prose choices such as pie/donut, bar/point, or HTML/CSS.
+    return any("." in part for part in parts)
+
+
 def _mentions_forbidden_path(text: str) -> bool:
     """True when a generated task points at an obvious non-writable file/path."""
     lowered = text.lower()
     if any(p in lowered for p in ROOT_WRITE_PATTERNS):
+        return True
+    if ROOT_FILE_RE.search(text):
         return True
     paths = re.findall(r"`([^`]+)`|(?:^|\s)([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+)", text)
     for quoted, bare in paths:
@@ -212,16 +243,14 @@ def _mentions_forbidden_path(text: str) -> bool:
             continue
         tokens = [candidate] if bare else candidate.split()
         path_tokens = [
-            token.strip(".,;:()[]{}\"'")
+            _path_token(token)
             for token in tokens
-            if "/" in token
+            if _looks_like_path(_path_token(token))
         ]
         for token in path_tokens:
             first = token.split("/", 1)[0]
             if first not in ALLOWED_GENERATED_DIRS:
                 return True
-        if not path_tokens:
-            return True
     return False
 
 
@@ -295,8 +324,10 @@ def sanitize_decomposition(
     goal_l = goal.lower()
     frontend_goal = _is_frontend_goal(goal)
     rejections: list[str] = []
+    rejected_scaffold = False
 
     def keep(kind: str, text: str) -> bool:
+        nonlocal rejected_scaffold
         lowered = text.lower()
         hits = [p for p in BAD_DECOMPOSITION_PATTERNS
                 if p in lowered and p not in goal_l]
@@ -304,8 +335,11 @@ def sanitize_decomposition(
             hits.extend(p for p in BAD_CRITERION_PATTERNS
                         if p in lowered and p not in goal_l)
         if frontend_goal:
-            hits.extend(p for p in FRONTEND_SCAFFOLD_PATTERNS
-                        if p in lowered and p not in goal_l)
+            frontend_hits = [p for p in FRONTEND_SCAFFOLD_PATTERNS
+                             if p in lowered and p not in goal_l]
+            if frontend_hits:
+                rejected_scaffold = True
+            hits.extend(frontend_hits)
         if hits or (_mentions_forbidden_path(text) and "root" not in goal_l):
             reason = ", ".join(hits) if hits else "non-writable/root path"
             rejections.append(f"{kind}: {text} ({reason})")
@@ -317,6 +351,11 @@ def sanitize_decomposition(
     quality_rejections = _frontend_quality_rejections(goal, clean_tasks, clean_criteria)
     if quality_rejections:
         rejections.extend(quality_rejections)
+    hard_quality_failure = (
+        rejected_scaffold
+        or any("empty visual placeholders" in r for r in quality_rejections)
+    )
+    if hard_quality_failure:
         return [], [], rejections
     return clean_tasks, clean_criteria, rejections
 
