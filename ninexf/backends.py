@@ -1,6 +1,6 @@
 """Model backends: ollama (local, default), nvidia/anthropic (API), mock.
 
-All backends expose one method: complete(system, user) -> str.
+All backends expose one method: complete(system, user, ...) -> str.
 Stdlib-only — HTTP via urllib so the harness has zero pip dependencies.
 """
 
@@ -48,7 +48,13 @@ class Backend:
         self._overflowed = False
         return v
 
-    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
         """temperature=None means the backend's default (used by best-of-N
         candidate sampling to vary candidates)."""
         raise NotImplementedError
@@ -88,7 +94,13 @@ class OllamaBackend(Backend):
         self.default_temperature = config.temperature
         self.timeout = config.backend_timeout
 
-    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
         data = _post_json(
             f"{self.endpoint}/api/chat",
             {
@@ -128,10 +140,16 @@ class AnthropicBackend(Backend):
                 retryable=False,
             )
 
-    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
         payload = {
             "model": self.model,
-            "max_tokens": 8192,
+            "max_tokens": max_tokens or 8192,
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
@@ -183,19 +201,38 @@ class NvidiaBackend(Backend):
                 retryable=False,
             )
 
-    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+    def _messages(self, system: str, user: str) -> list[dict]:
+        if self.model.startswith("google/gemma-"):
+            return [{
+                "role": "user",
+                "content": (
+                    f"{system.strip()}\n\n"
+                    f"{user.strip()}"
+                ).strip(),
+            }]
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "max_tokens": self.max_tokens,
+            "messages": self._messages(system, user),
+            "max_tokens": max_tokens or self.max_tokens,
             "temperature": temperature if temperature is not None
             else self.default_temperature,
             "top_p": self.top_p,
             "stream": False,
         }
+        if self.model.startswith("google/gemma-"):
+            payload["chat_template_kwargs"] = {"enable_thinking": True}
         data = _post_json(
             f"{self.endpoint}/chat/completions",
             payload,
@@ -716,7 +753,13 @@ class MockBackend(Backend):
             return "Fix the syntax error in src/validate_input.py."
         return "Improve the docstrings in src/main.py."
 
-    def complete(self, system: str, user: str, temperature: float | None = None) -> str:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
         # branches shared by every scenario (acceptance generation, critic)
         if "Write the acceptance test file now" in user:
             return (

@@ -22,7 +22,14 @@ from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.loop_common import ExecOutcome, _repair_file_dump, note_contradicted
-from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL, model_options
+from ninexf.models import (
+    DEFAULT_MODEL,
+    GPT_OSS_20B_MODEL,
+    NVIDIA_GEMMA_MODEL,
+    NVIDIA_KIMI_MODEL,
+    NVIDIA_QWEN_NEXT_MODEL,
+    model_options,
+)
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, PLANNER_SYSTEM, REPAIR_NOTE
@@ -422,6 +429,32 @@ class TestBackendAndStatus(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 16384)
         self.assertEqual(post.call_args.kwargs["timeout"], 123)
 
+    def test_nvidia_gemma_payload_uses_single_user_message_and_thinking_flag(self):
+        cfg = Config(
+            model=NVIDIA_GEMMA_MODEL,
+            temperature=1.0,
+            top_p=0.95,
+            max_tokens=16384,
+        )
+        with mock.patch.dict("os.environ", {"NVIDIA_API_KEY": "test-key"}):
+            backend = NvidiaBackend(cfg)
+        with mock.patch(
+            "ninexf.backends._post_json",
+            return_value={"choices": [{"message": {"content": "ok"}}]},
+        ) as post:
+            self.assertEqual(
+                backend.complete("system instructions", "user prompt", max_tokens=2048),
+                "ok",
+            )
+        payload = post.call_args.args[1]
+        self.assertEqual(payload["model"], "google/gemma-4-31b-it")
+        self.assertEqual(payload["max_tokens"], 2048)
+        self.assertEqual(payload["chat_template_kwargs"], {"enable_thinking": True})
+        self.assertEqual(len(payload["messages"]), 1)
+        self.assertEqual(payload["messages"][0]["role"], "user")
+        self.assertIn("system instructions", payload["messages"][0]["content"])
+        self.assertIn("user prompt", payload["messages"][0]["content"])
+
     def test_nvidia_backend_defaults_to_nvidia_api_key_env(self):
         cfg = Config(model=NVIDIA_KIMI_MODEL)
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -539,6 +572,8 @@ class TestPresets(unittest.TestCase):
         options = model_options([])
         self.assertEqual(options[0], DEFAULT_MODEL)
         self.assertIn(GPT_OSS_20B_MODEL, options)
+        self.assertIn(NVIDIA_GEMMA_MODEL, options)
+        self.assertIn(NVIDIA_QWEN_NEXT_MODEL, options)
 
     def test_model_catalog_prefers_installed_ollama_models(self):
         options = model_options(["gpt-oss:20b", "custom:latest"])
@@ -552,6 +587,10 @@ class TestPresets(unittest.TestCase):
         self.assertEqual(models["default"], DEFAULT_MODEL)
         self.assertIn(GPT_OSS_20B_MODEL, models["models"])
         self.assertIn(GPT_OSS_20B_MODEL, models["recommended"])
+        self.assertIn(NVIDIA_GEMMA_MODEL, models["models"])
+        self.assertIn(NVIDIA_GEMMA_MODEL, models["recommended"])
+        self.assertIn(NVIDIA_QWEN_NEXT_MODEL, models["models"])
+        self.assertIn(NVIDIA_QWEN_NEXT_MODEL, models["recommended"])
 
     def test_overnight_preset(self):
         d = Path(tempfile.mkdtemp())
@@ -571,6 +610,29 @@ class TestPresets(unittest.TestCase):
         self.assertTrue(cfg.acceptance_tests)
         self.assertEqual(cfg.max_hours, 8)
         self.assertEqual(cfg.model, "mock", "explicit overrides beat the preset")
+
+
+class TestPhaseTokenCaps(unittest.TestCase):
+    def test_phase_caps_reduce_non_executor_budgets(self):
+        from ninexf.loop import LoopRunner
+        d = Path(tempfile.mkdtemp())
+        (d / "goal.txt").write_text("test goal")
+        cfg = Config(model="mock", max_tokens=16384)
+        runner = LoopRunner(d, cfg)
+        self.assertEqual(runner._max_tokens_for_purpose("decompose"), 2048)
+        self.assertEqual(runner._max_tokens_for_purpose("planner"), 768)
+        self.assertEqual(runner._max_tokens_for_purpose("verify_done"), 1536)
+        self.assertEqual(runner._max_tokens_for_purpose("executor"), 8192)
+
+    def test_phase_caps_respect_lower_config_cap(self):
+        from ninexf.loop import LoopRunner
+        d = Path(tempfile.mkdtemp())
+        (d / "goal.txt").write_text("test goal")
+        cfg = Config(model="mock", max_tokens=600)
+        runner = LoopRunner(d, cfg)
+        self.assertEqual(runner._max_tokens_for_purpose("decompose"), 600)
+        self.assertEqual(runner._max_tokens_for_purpose("planner"), 600)
+        self.assertEqual(runner._max_tokens_for_purpose("executor"), 600)
 
     def test_default_control_mode_is_hybrid(self):
         self.assertEqual(Config().control_mode, "hybrid")

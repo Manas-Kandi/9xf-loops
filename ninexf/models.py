@@ -8,13 +8,17 @@ from __future__ import annotations
 
 DEFAULT_MODEL = "ollama/qwen2.5-coder:7b"
 GPT_OSS_20B_MODEL = "ollama/gpt-oss:20b"
+NVIDIA_GEMMA_MODEL = "nvidia/google/gemma-4-31b-it"
 NVIDIA_QWEN_MODEL = "nvidia/qwen/qwen3.5-122b-a10b"
+NVIDIA_QWEN_NEXT_MODEL = "nvidia/qwen/qwen3-next-80b-a3b-instruct"
 NVIDIA_KIMI_MODEL = "nvidia/moonshotai/kimi-k2.6"
 
 RECOMMENDED_MODELS = (
     DEFAULT_MODEL,
     GPT_OSS_20B_MODEL,
+    NVIDIA_GEMMA_MODEL,
     NVIDIA_QWEN_MODEL,
+    NVIDIA_QWEN_NEXT_MODEL,
     NVIDIA_KIMI_MODEL,
 )
 

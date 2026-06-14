@@ -6,6 +6,26 @@ from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
 class LifecycleMixin:
+    def _max_tokens_for_purpose(self, purpose: str) -> int | None:
+        cap = max(1, int(self.config.max_tokens))
+        compact = {
+            "decompose": min(cap, 2048),
+            "decompose_retry": min(cap, 2048),
+            "planner": min(cap, 768),
+            "planner_stuck_retry": min(cap, 768),
+            "planner_task_retry": min(cap, 768),
+            "task_check": min(cap, 512),
+            "verify_done": min(cap, 1536),
+            "reflection": min(cap, 768),
+            "diagnosis": min(cap, 1024),
+            "critic": min(cap, 1024),
+        }
+        if purpose.startswith("candidate_"):
+            return min(cap, 8192)
+        if purpose in {"executor", "repair", "critic_revision"}:
+            return min(cap, 8192)
+        return compact.get(purpose)
+
     def _reset_model_calls(self) -> None:
         self._model_calls = []
 
@@ -23,9 +43,11 @@ class LifecycleMixin:
     ) -> str:
         """Model-call wrapper that records backend cost and failure evidence."""
         started = time.perf_counter()
+        max_tokens = self._max_tokens_for_purpose(purpose)
         record = {
             "purpose": purpose,
             "temperature": temperature,
+            "max_tokens": max_tokens,
             "prompt_chars": len(system) + len(user),
             "response_chars": 0,
             "latency_s": 0.0,
@@ -41,14 +63,21 @@ class LifecycleMixin:
                 mode=state.get("mode", "model") or "model",
                 subtask=(
                     f"waiting for model: {purpose} "
-                    f"(timeout {self.config.backend_timeout:g}s)"
+                    f"(timeout {self.config.backend_timeout:g}s"
+                    + (f", max_tokens {max_tokens}" if max_tokens else "")
+                    + ")"
                 ),
                 ts=now_iso(),
             )
         except Exception:
             pass
         try:
-            response = self.backend.complete(system, user, temperature=temperature)
+            response = self.backend.complete(
+                system,
+                user,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
             record["response_chars"] = len(response)
             record["ok"] = True
             return response
