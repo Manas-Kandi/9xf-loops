@@ -42,8 +42,9 @@ from ninexf.tasks import (
     parse_task_ref_num, parse_task_refs, parse_verify_output, sanitize_decomposition,
     save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
     fallback_decomposition,
-    task_has_file_evidence, task_is_corrective, task_needs_model_check,
-    corrective_task_resolved, append_tasks, canonical_validation_task,
+    task_has_any_file_evidence, task_has_file_evidence, task_is_corrective,
+    task_needs_model_check, corrective_task_resolved, refinement_task_resolved,
+    append_tasks, canonical_validation_task,
 )
 from ninexf.tools import tool_result_failed
 from ninexf.validate import validate
@@ -126,6 +127,11 @@ class TestTasks(unittest.TestCase):
             ["src/index.html"],
             "TASK T4: Refine src/index.html, src/styles.css, and src/script.js.",
         ))
+        self.assertTrue(task_has_any_file_evidence(
+            Task(4, "Refine src/index.html, src/styles.css, and src/script.js."),
+            ["src/index.html"],
+            "TASK T4: Refine src/index.html, src/styles.css, and src/script.js.",
+        ))
         self.assertTrue(task_has_file_evidence(
             Task(4, "Refine src/index.html, src/styles.css, and src/script.js."),
             ["src/index.html", "src/styles.css", "src/script.js"],
@@ -146,10 +152,27 @@ class TestTasks(unittest.TestCase):
             ["src/index.html", "src/script.js"],
             "TASK T6: Fix the chart rendering bug in src/script.js.",
         ))
-        self.assertTrue(task_needs_model_check(
+        self.assertFalse(task_needs_model_check(
             Task(4, "Polish the dashboard interactions."),
             ["src/script.js"],
             "TASK T4: Improve the interactions.",
+        ))
+
+    def test_refinement_task_resolves_after_green_file_evidence(self):
+        task = Task(4, "Refine src/index.html, src/styles.css, and src/script.js.")
+        self.assertTrue(refinement_task_resolved(
+            task,
+            ["src/index.html"],
+            [],
+            [],
+            "TASK T4: Improve src/index.html.",
+        ))
+        self.assertFalse(refinement_task_resolved(
+            task,
+            ["src/index.html"],
+            [],
+            ["product_warning: frontend_static: visible chart missing"],
+            "TASK T4: Improve src/index.html.",
         ))
 
     def test_task_is_corrective(self):
@@ -976,6 +999,32 @@ class TestValidationEvidence(unittest.TestCase):
         result = validate(d, [html, css], timeout=5, allow_network=True)
         self.assertTrue(result.passed, result.errors)
         self.assertIn("frontend-static", result.detail)
+
+    def test_svg_chart_rejects_negative_rect_height(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "dashboard.html"
+        css = d / "src" / "styles.css"
+        css.write_text("body { font-family: Arial, sans-serif; }.metric{padding:8px}\n")
+        html.write_text(
+            "<!doctype html><html><head><title>Ops Dashboard</title>"
+            "<link rel='stylesheet' href='styles.css'></head><body>"
+            "<main class='dashboard'>"
+            "<article class='metric'>$128K</article>"
+            "<article class='metric'>42%</article>"
+            "<article class='metric'>18,400</article>"
+            "<svg class='chart' viewBox='0 0 120 50' aria-label='Revenue chart'>"
+            "<rect x='4' y='20' width='12' height='26'></rect>"
+            "<rect x='24' y='42' width='12' height='-10'></rect>"
+            "<rect x='44' y='6' width='12' height='40'></rect>"
+            "<text x='4' y='48'>Q1</text>"
+            "</svg>"
+            "</main></body></html>"
+        )
+        result = validate(d, [html, css], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "frontend_static")
+        self.assertIn("negative height", "\n".join(result.errors))
 
     def test_build_validation_warns_for_canvas_charts_planned_later(self):
         d = Path(tempfile.mkdtemp())

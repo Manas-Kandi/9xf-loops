@@ -589,6 +589,16 @@ def task_has_file_evidence(task: Task | None, written_rel: list[str], subtask: s
     return mentioned.issubset(written)
 
 
+def task_has_any_file_evidence(task: Task | None, written_rel: list[str], subtask: str = "") -> bool:
+    if task is None or not written_rel:
+        return False
+    mentioned = task_named_files(task, subtask)
+    if not mentioned:
+        return True
+    written = {rel.lower() for rel in written_rel if rel}
+    return bool(written & mentioned)
+
+
 def task_mentions_concrete_file(task: Task | None, subtask: str = "") -> bool:
     return bool(task_named_files(task, subtask))
 
@@ -606,10 +616,43 @@ def task_is_corrective(task: Task | None) -> bool:
     )
 
 
+def task_is_refinement(task: Task | None) -> bool:
+    if task is None:
+        return False
+    text = task.text.strip().lower()
+    return bool(re.search(
+        r"\b(refine|improve|polish|tighten|enhance|adjust|clarify|density|spacing|interaction|visual)\b",
+        text,
+    ))
+
+
+def refinement_task_resolved(
+    task: Task | None,
+    written_rel: list[str],
+    validation_errors: list[str],
+    validation_warnings: list[str],
+    subtask: str = "",
+) -> bool | None:
+    """Deterministic completion for broad polish/refinement tasks.
+
+    These tasks are intentionally open-ended. If validation is green and the
+    iteration wrote the files named by the task or subtask, keeping the task in
+    progress causes the planner to loop on it forever instead of verifying and
+    then moving into budget-based continuous improvement.
+    """
+    if task is None or not task_is_refinement(task):
+        return None
+    if validation_errors or validation_warnings:
+        return False
+    return task_has_any_file_evidence(task, written_rel, subtask)
+
+
 def task_needs_model_check(task: Task | None, written_rel: list[str], subtask: str = "") -> bool:
     """Only spend a task_check call when deterministic evidence is weak."""
     if not task_has_file_evidence(task, written_rel, subtask):
         return True
+    if task_is_refinement(task):
+        return False
     if task_mentions_concrete_file(task, subtask):
         return False
     return True

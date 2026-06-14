@@ -257,13 +257,29 @@ class LoopRunner(
                 current_tasks = load_tasks(self.project_dir)
                 for tid in done_candidates:
                     task = current_tasks.get(tid)
-                    if not task_has_file_evidence(task, files_written_rel, subtask):
+                    has_evidence = task_has_file_evidence(task, files_written_rel, subtask)
+                    if not has_evidence and task_is_refinement(task):
+                        has_evidence = task_has_any_file_evidence(task, files_written_rel, subtask)
+                    if not has_evidence:
                         continue
                     resolved = corrective_task_resolved(
                         task,
                         errors,
                         outcome.validation_warnings,
                         acceptance_passed,
+                    )
+                    if resolved is True:
+                        mark_status(self.project_dir, tid, STATUS_DONE)
+                        logger.info(f"[9xf]   task T{tid} marked done")
+                        continue
+                    if resolved is False:
+                        continue
+                    resolved = refinement_task_resolved(
+                        task,
+                        files_written_rel,
+                        errors,
+                        outcome.validation_warnings,
+                        subtask,
                     )
                     if resolved is True:
                         mark_status(self.project_dir, tid, STATUS_DONE)
@@ -438,7 +454,8 @@ class LoopRunner(
         iteration = start
         retry_after: float | None = None
         rate_limited = False
-        while iteration - start < cap:
+        productive_iterations = 0
+        while productive_iterations < cap:
             reason = self._stop_requested()
             if reason:
                 self._clean_shutdown(iteration, reason)
@@ -452,6 +469,7 @@ class LoopRunner(
                 retry_after = None
                 rate_limited = False
                 entry = self.run_iteration(iteration)
+                productive_iterations += 1
                 backend_failures = 0
                 if entry.event == "iteration":
                     mark = "✓" if entry.validation_passed else "✗"
@@ -494,7 +512,7 @@ class LoopRunner(
             if reason:
                 self._clean_shutdown(iteration, reason)
                 return
-            if iteration - start < cap:
+            if productive_iterations < cap:
                 pause = sleep_s
                 if retry_after is not None:
                     pause = max(pause, float(retry_after))

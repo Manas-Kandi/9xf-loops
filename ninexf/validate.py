@@ -354,6 +354,39 @@ def _has_visible_chart(probe: _HTMLProbe, source: str) -> bool:
     return visual_classes >= 3
 
 
+def _svg_number(value: str | None) -> float | None:
+    if value is None:
+        return None
+    m = re.match(r"\s*(-?\d+(?:\.\d+)?)", value)
+    return float(m.group(1)) if m else None
+
+
+def _svg_geometry_errors(probe: _HTMLProbe, rel: str) -> list[str]:
+    errors: list[str] = []
+    for tag, attrs in probe.tags:
+        if tag == "svg":
+            viewbox = attrs.get("viewbox") or attrs.get("viewBox")
+            if viewbox:
+                nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", viewbox)]
+                if len(nums) == 4 and (nums[2] <= 0 or nums[3] <= 0):
+                    errors.append(
+                        f"frontend_static: {rel}: svg viewBox has non-positive size {viewbox!r}"
+                    )
+        if tag == "rect":
+            width = _svg_number(attrs.get("width"))
+            height = _svg_number(attrs.get("height"))
+            if width is not None and width <= 0:
+                errors.append(
+                    f"frontend_static: {rel}: svg rect has non-positive width {attrs.get('width')!r}"
+                )
+            if height is not None and height < 0:
+                errors.append(
+                    f"frontend_static: {rel}: svg rect has negative height {attrs.get('height')!r}; "
+                    "use a positive height and adjust y for negative values"
+                )
+    return errors
+
+
 def _load_script_sources(project_dir: Path, assets: list[Path]) -> list[str]:
     sources: list[str] = []
     for asset in assets:
@@ -498,6 +531,7 @@ def _frontend_static_errors(
         except Exception as e:
             errors.append(f"frontend_static: {rel}: cannot parse HTML: {e}")
             continue
+        errors.extend(_svg_geometry_errors(probe, rel))
 
         stylesheet_links = []
         stylesheet_assets: list[Path] = []

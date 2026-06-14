@@ -17,6 +17,9 @@ It is good to keep refining the same files or adjacent task slice across
 multiple iterations when that is where quality gains are found. Read the
 current implementation, identify what could be improved, make a small concrete
 improvement, and repeat.
+Improvement means user-visible quality, correctness, accessibility, responsive
+behavior, data clarity, or validation evidence. Do not propose comment-only or
+documentation-only edits unless the goal explicitly asks for documentation.
 All implementation files must be inside src/, tests/, or tools/. For web UI
 work, propose paths such as src/index.html, src/styles.css, and src/script.js,
 not repo-root index.html/styles.css/script.js.
@@ -90,7 +93,8 @@ existing files and propose one concrete refinement that improves correctness,
 quality, consistency, or completeness in place. Favor tightening the current
 implementation over creating new infrastructure. If the history shows the same
 kind of problem recurring, consider a helper script in tools/ only when that
-directly supports the goal and stays inside scope."""
+directly supports the goal and stays inside scope. Do not spend review work on
+comments or documentation unless documentation is the actual user goal."""
 
 NO_TESTS_NOTE = """
 NOTE: the project currently has NO tests. Untested code keeps accumulating
@@ -427,6 +431,10 @@ Rules:
 - Iterative refinement is expected. If the current files already exist, it is
   often better to improve them directly than to create more files or invent new
   architecture.
+- Refinement must materially improve runtime behavior, visual output,
+  accessibility, responsiveness, data clarity, or validation evidence. Do not
+  make comment-only or documentation-only edits unless the sub-task explicitly
+  asks for documentation.
 - Every response must leave the project runnable and validation-green. Do not
   import modules that are not already present in CURRENT CODEBASE unless you
   create those modules in the same response.
