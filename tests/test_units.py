@@ -28,8 +28,9 @@ from ninexf.stuck import detect_signals, normalize_error
 from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle
 from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
-    parse_task_ref_num, parse_verify_output, sanitize_decomposition,
-    save_tasks, strip_task_ref, tasks_for_prompt,
+    parse_task_ref_num, parse_task_refs, parse_verify_output, sanitize_decomposition,
+    save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
+    task_has_file_evidence,
 )
 from ninexf.validate import validate
 
@@ -69,6 +70,14 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(parse_task_ref("TASK T2: second", tl), 0)
         self.assertEqual(parse_task_ref("TASK T1: first", tl), 1)
 
+    def test_hybrid_task_refs_allow_adjacent_slice(self):
+        tl = TaskList(tasks=[Task(1, "Create src/index.html"),
+                             Task(2, "Create src/styles.css"),
+                             Task(3, "Create src/script.js")])
+        self.assertEqual(parse_task_refs("TASK T1-T3: build the UI slice", tl, "hybrid"),
+                         [1, 2, 3])
+        self.assertEqual(parse_task_refs("TASK T2: create CSS", tl, "strict"), [])
+
     def test_tasks_prompt_marks_deferred_ineligible(self):
         d = Path(tempfile.mkdtemp())
         save_tasks(d, TaskList(tasks=[Task(1, "open"), Task(2, "later"), Task(3, "blocked", "!")]))
@@ -77,6 +86,30 @@ class TestTasks(unittest.TestCase):
         self.assertIn("T1 (open)", prompt)
         self.assertIn("T2 (queued, not eligible yet)", prompt)
         self.assertIn("T3 (deferred, not eligible)", prompt)
+
+    def test_hybrid_tasks_prompt_is_a_roadmap(self):
+        d = Path(tempfile.mkdtemp())
+        save_tasks(d, TaskList(tasks=[Task(1, "Create src/index.html"), Task(2, "Create src/styles.css")]))
+        prompt = tasks_for_prompt(d, "hybrid")
+        self.assertIn("Task roadmap", prompt)
+        self.assertIn("may span adjacent open tasks", prompt)
+
+    def test_infer_task_ids_for_written_files(self):
+        tl = TaskList(tasks=[Task(1, "Create src/index.html"),
+                             Task(2, "Create src/styles.css"),
+                             Task(3, "Create tests/test_dashboard.py")])
+        self.assertEqual(infer_task_ids_for_files(tl, ["src/index.html", "src/styles.css"]),
+                         [1, 2])
+
+    def test_task_done_requires_written_file_evidence(self):
+        task = Task(2, "Add the feature module.")
+        self.assertTrue(task_has_file_evidence(
+            task, ["src/feature.py"], "TASK T2: Add the feature module in src/feature.py."))
+        self.assertFalse(task_has_file_evidence(
+            task, ["src/main.py"], "TASK T2: Add the feature module in src/feature.py."))
+        self.assertTrue(task_has_file_evidence(
+            Task(3, "Fix the acceptance assertion."), ["tests/test_main.py"],
+            "TASK T3: Fix the acceptance assertion."))
 
     def test_sanitize_bad_decomposition(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -394,6 +427,9 @@ class TestPresets(unittest.TestCase):
         self.assertEqual(cfg.max_hours, 8)
         self.assertEqual(cfg.model, "mock", "explicit overrides beat the preset")
 
+    def test_default_control_mode_is_hybrid(self):
+        self.assertEqual(Config().control_mode, "hybrid")
+
     def test_unknown_preset_rejected(self):
         with self.assertRaises(ValueError):
             write_config(Path(tempfile.mkdtemp()), preset="nope")
@@ -632,6 +668,41 @@ class TestValidationEvidence(unittest.TestCase):
         result = validate(d, [html, css], timeout=5, allow_network=True)
         self.assertTrue(result.passed, result.errors)
         self.assertIn("frontend-static", result.detail)
+
+    def test_build_validation_warns_for_canvas_charts_planned_later(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        css = d / "src" / "styles.css"
+        css.write_text("body{display:grid}.metric{background:white}\n")
+        html.write_text(
+            "<!doctype html><html><head><link rel='stylesheet' href='styles.css'></head>"
+            "<body><main class='dashboard'>"
+            "<section class='metrics'><div>$120K</div><div>42%</div><div>8,901</div></section>"
+            "<section class='chart'><h2>Customer chart</h2><canvas id='chart'></canvas></section>"
+            "<script src='script.js'></script>"
+            "</main></body></html>"
+        )
+        build = validate(d, [html, css], timeout=5, allow_network=True, phase="build")
+        self.assertTrue(build.passed, build.errors)
+        self.assertTrue(build.warnings)
+        self.assertIn("product warning", build.detail)
+        final = validate(d, [html, css], timeout=5, allow_network=True, phase="final")
+        self.assertFalse(final.passed)
+        self.assertEqual(final.failure_kind, "frontend_static")
+
+    def test_build_validation_hard_fails_empty_dashboard_placeholders(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        html.write_text(
+            "<!doctype html><html><head><style>.dashboard{display:grid}</style></head>"
+            "<body><main class='dashboard'><div class='chart'></div>"
+            "<p>$1</p><p>2%</p><p>3</p></main></body></html>"
+        )
+        result = validate(d, [html], timeout=5, allow_network=True, phase="build")
+        self.assertFalse(result.passed)
+        self.assertIn("empty placeholders", "\n".join(result.errors))
 
 
 class TestRepairEvidence(unittest.TestCase):

@@ -47,9 +47,9 @@ class VerifyMixin:
                     subtask="(verifying goal completion)", ts=now_iso())
 
         all_files = [p for d in ("src", "tests", "tools")
-                     for p in sorted((self.project_dir / d).rglob("*.py"))]
+                     for p in sorted((self.project_dir / d).rglob("*")) if p.is_file()]
         result = validate(self.project_dir, all_files, cfg.validation_timeout,
-                          cfg.allow_network, run_tests=cfg.run_tests)
+                          cfg.allow_network, run_tests=cfg.run_tests, phase="final")
         errors = list(result.errors)
         acc_passed, acc_ran = run_acceptance(self.project_dir, cfg.validation_timeout,
                                              cfg.allow_network)
@@ -116,6 +116,7 @@ class VerifyMixin:
             iteration=iteration, timestamp=now_iso(), subtask="(verify goal completion)",
             summary=summary, validation_passed=result.passed,
             validation_detail=result.detail, errors=errors, commit=commit_hash,
+            validation_warnings=result.warnings,
             event=event, mode="verify_done", tests_ran=result.tests_ran,
             tasks_done=done, tasks_total=total,
             acceptance_passed=acc_passed, acceptance_ran=acc_ran,

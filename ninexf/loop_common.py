@@ -58,6 +58,8 @@ from ninexf.tasks import (
     STATUS_DEFERRED, STATUS_DONE, STATUS_IN_PROGRESS, Task, TaskList,
     criteria_for_prompt, load_criteria, load_tasks, mark_status,
     parse_decomposition, parse_task_ref, parse_task_ref_num, parse_verify_output,
+    parse_task_refs, infer_task_ids_for_files,
+    task_has_file_evidence,
     sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
     tasks_for_prompt, tasks_path, append_tasks,
 )
@@ -86,6 +88,7 @@ class ExecOutcome:
     error_signature: str = ""
     error_excerpt: str = ""
     parse_warnings: list[str] = field(default_factory=list)
+    validation_warnings: list[str] = field(default_factory=list)
 
 
 def _add_repair_path(project_dir: Path, rels: list[str], path: Path) -> None:

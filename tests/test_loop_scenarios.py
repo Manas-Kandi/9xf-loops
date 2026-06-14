@@ -49,7 +49,8 @@ class TestRegressor(unittest.TestCase):
     the harness auto-reverts to the green commit (history stays linear)."""
 
     def setUp(self):
-        self.project = make_run("Greeting tool", "mock/regressor")
+        self.project = make_run("Greeting tool", "mock/regressor",
+                                {"control_mode": "strict"})
 
     def tearDown(self):
         cleanup(self.project)
@@ -84,7 +85,7 @@ class TestExplorer(unittest.TestCase):
 
     def setUp(self):
         self.project = make_run("Greeting tool", "mock/explorer",
-                                {"explore_enabled": True})
+                                {"explore_enabled": True, "control_mode": "strict"})
 
     def tearDown(self):
         cleanup(self.project)
@@ -143,7 +144,8 @@ class TestKeepBest(unittest.TestCase):
     def setUp(self):
         # repair can't save the regressor (it always re-emits broken code), so
         # the run ends in a failing state — exactly what keep_best is for
-        self.project = make_run("Greeting tool", "mock/regressor")
+        self.project = make_run("Greeting tool", "mock/regressor",
+                                {"control_mode": "strict"})
 
     def tearDown(self):
         cleanup(self.project)
@@ -308,7 +310,8 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
             cleanup(project)
 
     def test_queued_task_selection_is_rewritten_to_next_task(self):
-        project = make_run("Greeting tool", "mock/jump_ahead")
+        project = make_run("Greeting tool", "mock/jump_ahead",
+                           {"control_mode": "strict"})
         try:
             entries = run_loop(project, max_iterations=2)
             iters = iteration_entries(entries)
@@ -321,7 +324,8 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
 
     def test_deferred_task_selection_is_rewritten_to_open_task(self):
         project = make_run("Greeting tool", "mock/deferred_retry",
-                           {"max_task_failures": 1, "repair_attempts": 0})
+                           {"max_task_failures": 1, "repair_attempts": 0,
+                            "control_mode": "strict"})
         try:
             entries = run_loop(project, max_iterations=3)
             iters = iteration_entries(entries)

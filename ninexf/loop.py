@@ -93,11 +93,15 @@ class LoopRunner(
         append_activity(self.project_dir, f"selected next step: {subtask[:160]}",
                         iteration=iteration, kind="plan")
 
-        # which TASKS.md task is this step targeting? (0 = none/unknown — drift is data)
+        # which TASKS.md task(s) is this step targeting? (task_id keeps the
+        # first target for backward-compatible logs)
         tl = load_tasks(self.project_dir)
-        task_id = parse_task_ref(subtask, tl)
-        if task_id and tl.get(task_id).open:
-            mark_status(self.project_dir, task_id, STATUS_IN_PROGRESS)
+        task_ids = parse_task_refs(subtask, tl, cfg.control_mode)
+        task_id = task_ids[0] if task_ids else 0
+        for tid in task_ids:
+            task = tl.get(tid)
+            if task and task.open:
+                mark_status(self.project_dir, tid, STATUS_IN_PROGRESS)
 
         # 2. execute it — fresh snapshot scored against the actual subtask, and
         # record which files the executor actually saw (a key research observable)
@@ -230,14 +234,25 @@ class LoopRunner(
         regression = prev_passed and failed
         files_written_rel = [str(p.relative_to(self.project_dir)) for p in written]
 
-        # task bookkeeping: only the harness marks a task done — green iteration
-        # plus a YES from a one-line completion check. Repeated failures defer
-        # the task so the loop stops grinding on it.
+        # task bookkeeping: strict mode preserves the old single-task gate.
+        # Hybrid mode checks every open task evidenced by the written files so
+        # a coherent multi-file slice can complete multiple adjacent tasks.
         if task_id:
-            if not failed and self._check_task_done(task_id, errors):
-                mark_status(self.project_dir, task_id, STATUS_DONE)
-                logger.info(f"[9xf]   task T{task_id} marked done")
-            elif failed and self._task_failures(task_id) + 1 >= cfg.max_task_failures:
+            if not failed:
+                done_candidates = list(task_ids)
+                if cfg.control_mode in {"hybrid", "freeform"}:
+                    for tid in infer_task_ids_for_files(load_tasks(self.project_dir), files_written_rel):
+                        if tid not in done_candidates:
+                            done_candidates.append(tid)
+                current_tasks = load_tasks(self.project_dir)
+                for tid in done_candidates:
+                    if not task_has_file_evidence(current_tasks.get(tid), files_written_rel, subtask):
+                        continue
+                    if self._check_task_done(tid, errors):
+                        mark_status(self.project_dir, tid, STATUS_DONE)
+                        logger.info(f"[9xf]   task T{tid} marked done")
+            elif (cfg.control_mode == "strict"
+                  and self._task_failures(task_id) + 1 >= cfg.max_task_failures):
                 mark_status(self.project_dir, task_id, STATUS_DEFERRED)
                 errors.append(f"task T{task_id} deferred after "
                               f"{cfg.max_task_failures} failed attempts")
@@ -311,6 +326,7 @@ class LoopRunner(
             validation_passed=validation_passed,
             validation_detail=validation_detail,
             errors=errors,
+            validation_warnings=outcome.validation_warnings,
             parse_warnings=outcome.parse_warnings,
             commit=commit_hash,
             mode=mode,

@@ -26,6 +26,7 @@ class ValidationResult:
     passed: bool
     detail: str = ""
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     tests_ran: int = 0
     tests_failed: list[str] = field(default_factory=list)
     failure_kind: str = ""
@@ -268,7 +269,7 @@ def _display_rel(project_dir: Path, path: Path) -> str:
 def _frontend_html_files(project_dir: Path, written_files: list[Path]) -> list[Path]:
     frontend_written = [
         p for p in written_files
-        if p.suffix.lower() in {".html", ".htm", ".css"}
+        if p.suffix.lower() in {".html", ".htm", ".css", ".js", ".mjs"}
         and _inside_project(project_dir, p)
     ]
     if not frontend_written:
@@ -299,6 +300,20 @@ def _resolve_local_asset(project_dir: Path, html_file: Path, href: str) -> tuple
     if not _inside_project(project_dir, candidate):
         return candidate, "outside project"
     return candidate, None
+
+
+def _add_phase_issue(
+    errors: list[str],
+    warnings: list[str],
+    phase: str,
+    message: str,
+    *,
+    final_only: bool = False,
+) -> None:
+    if final_only and phase == "build":
+        warnings.append("product_warning: " + message)
+    else:
+        errors.append(message)
 
 
 def _has_dashboard_intent(html_file: Path, source: str, visible_text: str) -> bool:
@@ -339,7 +354,11 @@ def _has_visible_chart(probe: _HTMLProbe, source: str) -> bool:
     return visual_classes >= 3
 
 
-def _frontend_static_errors(project_dir: Path, written_files: list[Path]) -> tuple[list[str], bool]:
+def _frontend_static_errors(
+    project_dir: Path,
+    written_files: list[Path],
+    phase: str,
+) -> tuple[list[str], list[str], bool]:
     """Catch broken local HTML/CSS wiring and empty dashboard-shaped output.
 
     This is intentionally a shallow guard. It does not grade design taste, but
@@ -347,9 +366,14 @@ def _frontend_static_errors(project_dir: Path, written_files: list[Path]) -> tup
     chart placeholder passes because Python validation had nothing to execute.
     """
     errors: list[str] = []
+    warnings: list[str] = []
     html_files = _frontend_html_files(project_dir, written_files)
     if not html_files:
-        return errors, False
+        return errors, warnings, False
+    written_css = [
+        p for p in written_files
+        if p.suffix.lower() == ".css" and _inside_project(project_dir, p)
+    ]
 
     for html_file in html_files:
         rel = _display_rel(project_dir, html_file)
@@ -384,25 +408,63 @@ def _frontend_static_errors(project_dir: Path, written_files: list[Path]) -> tup
                 continue
             if asset is None or not asset.exists():
                 target = _display_rel(project_dir, asset) if asset and _inside_project(project_dir, asset) else href
-                errors.append(
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
                     f"frontend_static: {rel}: stylesheet link {href!r} does not resolve "
-                    f"to an existing file ({target})"
+                    f"to an existing file ({target})",
+                    final_only=not written_css,
                 )
                 continue
             valid_stylesheets += 1
+
+        script_srcs = []
+        for tag, attrs in probe.tags:
+            if tag != "script":
+                continue
+            src = attrs.get("src", "").strip()
+            if not src:
+                continue
+            script_srcs.append(src)
+            asset, problem = _resolve_local_asset(project_dir, html_file, src)
+            if problem:
+                errors.append(
+                    f"frontend_static: {rel}: script src {src!r} uses {problem}; "
+                    "use a local JS file under src/"
+                )
+                continue
+            if asset is None or not asset.exists():
+                target = _display_rel(project_dir, asset) if asset and _inside_project(project_dir, asset) else src
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: script src {src!r} does not resolve "
+                    f"to an existing file ({target})",
+                    final_only=True,
+                )
 
         visible_text = " ".join(probe.text_parts)
         dashboard_like = _has_dashboard_intent(html_file, source, visible_text)
         has_inline_style = bool("".join(probe.style_text).strip())
         if dashboard_like and not valid_stylesheets and not has_inline_style:
             if stylesheet_links:
-                errors.append(
-                    f"frontend_static: {rel}: dashboard-like HTML has no valid stylesheet loaded"
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: dashboard-like HTML has no valid stylesheet loaded",
+                    final_only=not written_css,
                 )
             else:
-                errors.append(
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
                     f"frontend_static: {rel}: dashboard-like HTML needs local CSS or a "
-                    "non-empty <style> block; avoid browser-default rendering"
+                    "non-empty <style> block; avoid browser-default rendering",
+                    final_only=not written_css,
                 )
 
         empty_visual = re.search(
@@ -420,18 +482,26 @@ def _frontend_static_errors(project_dir: Path, written_files: list[Path]) -> tup
         if dashboard_like:
             numbers = _numeric_value_count(visible_text)
             if numbers < 3:
-                errors.append(
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
                     f"frontend_static: {rel}: dashboard-like HTML exposes only "
-                    f"{numbers} numeric value(s); include real metric values/data points"
+                    f"{numbers} numeric value(s); include real metric values/data points",
+                    final_only=True,
                 )
             chart_terms = any(term in source.lower() for term in ("chart", "charts", "graph", "graphs"))
             if chart_terms and not _has_visible_chart(probe, source):
-                errors.append(
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
                     f"frontend_static: {rel}: chart/graph language is present but "
-                    "no visible chart marks, table data, bars, meter, or progress elements were found"
+                    "no visible chart marks, table data, bars, meter, or progress elements were found",
+                    final_only=True,
                 )
 
-    return errors, True
+    return errors, warnings, True
 
 
 def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_network: bool) -> list[str]:
@@ -513,8 +583,10 @@ def validate(
     timeout: float,
     allow_network: bool,
     run_tests: bool = True,
+    phase: str = "final",
 ) -> ValidationResult:
     errors = _compile_check(written_files)
+    warnings: list[str] = []
     detail_parts = ["compile-check"]
     tests_ran, tests_failed = 0, []
     if not errors:
@@ -523,10 +595,13 @@ def validate(
                for p in written_files):
             detail_parts.append("import-check")
     if not errors:
-        frontend_errors, frontend_checked = _frontend_static_errors(project_dir, written_files)
+        frontend_errors, frontend_warnings, frontend_checked = _frontend_static_errors(
+            project_dir, written_files, phase
+        )
         if frontend_checked:
             detail_parts.append("frontend-static")
         errors.extend(frontend_errors)
+        warnings.extend(frontend_warnings)
     if not errors:
         entry = _entry_point(project_dir)
         if entry is not None:
@@ -564,8 +639,10 @@ def validate(
             failure_kind = "compile"
     return ValidationResult(
         passed=not errors,
-        detail=" + ".join(detail_parts),
+        detail=" + ".join(detail_parts)
+        + (f" ({len(warnings)} product warning(s))" if warnings else ""),
         errors=errors,
+        warnings=warnings,
         tests_ran=tests_ran,
         tests_failed=tests_failed,
         failure_kind=failure_kind,

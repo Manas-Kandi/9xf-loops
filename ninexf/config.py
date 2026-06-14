@@ -31,6 +31,7 @@ DEFAULTS = {
     "tools_enabled": True,
     "run_tests": True,
     "decompose_enabled": True,
+    "control_mode": "hybrid",  # hybrid | strict | freeform
     "max_task_failures": 3,
     "max_verify_attempts": 3,
     "revert_after_failures": 3,
@@ -125,6 +126,7 @@ class Config:
     tools_enabled: bool = DEFAULTS["tools_enabled"]
     run_tests: bool = DEFAULTS["run_tests"]
     decompose_enabled: bool = DEFAULTS["decompose_enabled"]
+    control_mode: str = DEFAULTS["control_mode"]
     max_task_failures: int = DEFAULTS["max_task_failures"]
     max_verify_attempts: int = DEFAULTS["max_verify_attempts"]
     revert_after_failures: int = DEFAULTS["revert_after_failures"]

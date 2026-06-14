@@ -62,9 +62,11 @@ class ExecutionMixin:
             append_activity(self.project_dir,
                             f"validating {len(outcome.written)} written file(s)",
                             iteration=iteration, kind="validate")
+            phase = "final" if cfg.control_mode == "strict" else "build"
             result = validate(self.project_dir, outcome.written, cfg.validation_timeout,
-                              cfg.allow_network, run_tests=cfg.run_tests)
+                              cfg.allow_network, run_tests=cfg.run_tests, phase=phase)
             outcome.errors.extend(result.errors)
+            outcome.validation_warnings.extend(result.warnings)
             outcome.validation_passed = result.passed
             outcome.validation_detail = result.detail
             outcome.tests_ran = result.tests_ran
@@ -76,6 +78,9 @@ class ExecutionMixin:
                             f"validation failed: {result.failure_kind or 'error'}",
                             iteration=iteration,
                             kind="validate" if result.passed else "error")
+            for warning in result.warnings[:3]:
+                append_activity(self.project_dir, f"validation warning: {warning[:140]}",
+                                iteration=iteration, kind="warning")
         else:
             outcome.validation_detail = "nothing written"
             if outcome.errors:
@@ -139,6 +144,24 @@ class ExecutionMixin:
             errors = errors[:3500] or "(none recorded)"
             repair_user = executor_user + REPAIR_NOTE.format(files=dump, errors=errors)
             new = self._execute_once(iteration, subtask, repair_user, None, purpose="repair")
+            if new.written:
+                touched = []
+                for path in outcome.written + new.written:
+                    if path not in touched:
+                        touched.append(path)
+                phase = "final" if self.config.control_mode == "strict" else "build"
+                result = validate(self.project_dir, touched, self.config.validation_timeout,
+                                  self.config.allow_network,
+                                  run_tests=self.config.run_tests, phase=phase)
+                new.validation_passed = result.passed
+                new.validation_detail = result.detail
+                new.tests_ran = result.tests_ran
+                new.failure_kind = result.failure_kind
+                new.error_signature = result.error_signature
+                new.error_excerpt = result.error_excerpt
+                new.validation_warnings = result.warnings
+                new.errors = list(result.errors)
+                new.written = touched
             repairs.append({
                 "attempt": attempt,
                 "errors_before": [str(e)[:200] for e in outcome.errors][:5],

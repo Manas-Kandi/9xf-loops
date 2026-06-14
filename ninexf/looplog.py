@@ -20,6 +20,7 @@ class LogEntry:
     validation_passed: bool | None = None
     validation_detail: str = ""
     errors: list[str] = field(default_factory=list)
+    validation_warnings: list[str] = field(default_factory=list)
     parse_warnings: list[str] = field(default_factory=list)
     commit: str = ""
     event: str = "iteration"  # iteration | startup | shutdown | violation | decompose | verify | finished | revert | explore | restore_best

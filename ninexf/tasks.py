@@ -381,11 +381,24 @@ def append_tasks(project_dir: Path, texts: list[str]) -> list[int]:
     return nums
 
 
-def tasks_for_prompt(project_dir: Path) -> str:
+def tasks_for_prompt(project_dir: Path, control_mode: str = "strict") -> str:
     """The task-list section shown to the planner."""
     tl = load_tasks(project_dir)
     if not tl.tasks:
         return ""
+    if control_mode in {"hybrid", "freeform"}:
+        lines = [
+            "Task roadmap:",
+            "  Treat this as guidance. In hybrid mode, choose the smallest coherent slice",
+            "  that makes real progress; it may span adjacent open tasks when one file set",
+            "  naturally needs to be built together.",
+        ]
+        for t in sorted(tl.tasks, key=lambda t: t.num):
+            label = {STATUS_TODO: "open", STATUS_IN_PROGRESS: "in progress",
+                     STATUS_DONE: "DONE", STATUS_DEFERRED: "deferred"}.get(t.status, "open")
+            suffix = " (avoid unless unblocking final verification)" if t.status == STATUS_DEFERRED else ""
+            lines.append(f"  T{t.num} ({label}{suffix}): {t.text}")
+        return "\n".join(lines)
     eligible = tl.eligible_task()
     lines = ["Eligible next task:"]
     if eligible:
@@ -433,6 +446,37 @@ def parse_task_ref(subtask: str, tl: TaskList) -> int:
     return num if eligible and eligible.num == num else 0
 
 
+def parse_task_refs(subtask: str, tl: TaskList, control_mode: str = "strict") -> list[int]:
+    """Task refs this plan is allowed to target.
+
+    Strict mode preserves the old single eligible-task gate. Hybrid mode lets
+    the planner name multiple open tasks, including compact ranges like T1-T3.
+    """
+    if control_mode == "strict":
+        num = parse_task_ref(subtask, tl)
+        return [num] if num else []
+    if control_mode == "freeform" or not tl.tasks:
+        return []
+    nums: list[int] = []
+    for start, end in re.findall(r"\bT?(\d+)\s*[-–]\s*T?(\d+)\b", subtask, re.I):
+        lo, hi = sorted((int(start), int(end)))
+        nums.extend(range(lo, hi + 1))
+    for explicit, shorthand in re.findall(r"\bTASK\s+T?(\d+)\b|\bT(\d+)\b", subtask, re.I):
+        value = explicit or shorthand
+        if value:
+            nums.append(int(value))
+    out: list[int] = []
+    for num in nums:
+        task = tl.get(num)
+        if task and task.open and num not in out:
+            out.append(num)
+    if not out:
+        eligible = tl.eligible_task()
+        if eligible:
+            out.append(eligible.num)
+    return out
+
+
 def parse_task_ref_num(subtask: str) -> int:
     """Return the mentioned task number even if unknown/deferred."""
     m = re.match(r"\s*TASK\s+T?(\d+)\s*:?", subtask, re.IGNORECASE)
@@ -442,6 +486,39 @@ def parse_task_ref_num(subtask: str) -> int:
 def strip_task_ref(subtask: str) -> str:
     """Remove the 'TASK Tn:' prefix so the executor sees a clean instruction."""
     return re.sub(r"^\s*TASK\s+T?\d+\s*:?\s*", "", subtask, flags=re.IGNORECASE).strip() or subtask
+
+
+def infer_task_ids_for_files(tl: TaskList, written_rel: list[str]) -> list[int]:
+    """Open tasks whose text names one of the files just written."""
+    if not written_rel:
+        return []
+    candidates: list[int] = []
+    names = {rel.lower() for rel in written_rel}
+    for task in sorted(tl.tasks, key=lambda t: t.num):
+        if not task.open:
+            continue
+        text = task.text.lower()
+        if any(name and name in text for name in names):
+            candidates.append(task.num)
+    return candidates
+
+
+def task_has_file_evidence(task: Task | None, written_rel: list[str], subtask: str = "") -> bool:
+    """True when this successful attempt wrote a file named by the task/slice.
+
+    The model's task-check verdict is still useful, but it should not be the
+    only signal. A repair can make validation green by rewriting an unrelated
+    file; that must not close a task that named a concrete target file.
+    """
+    if task is None or not written_rel:
+        return False
+    haystack = f"{task.text}\n{subtask}".lower()
+    mentioned = set()
+    for match in re.findall(r"\b(?:src|tests|tools)/[A-Za-z0-9_./-]+", haystack):
+        mentioned.add(match.rstrip(".,:;)]}'\"`"))
+    if not mentioned:
+        return True
+    return any(rel.lower() in mentioned for rel in written_rel if rel)
 
 
 VERDICT_PASS_RE = re.compile(r"^[\s\-*]*PASS:?\s*C?(?P<num>\d+)", re.IGNORECASE)

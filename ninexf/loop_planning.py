@@ -27,7 +27,7 @@ class PlanningMixin:
         has_tests = any((self.project_dir / "tests").glob("test_*.py"))
         if has_src and not has_tests:
             mode_instructions += NO_TESTS_NOTE
-        tasks = tasks_for_prompt(self.project_dir)
+        tasks = tasks_for_prompt(self.project_dir, self.config.control_mode)
         tasks_section = TASKS_SECTION.format(tasks=tasks) if tasks else ""
         contract = contract_for_prompt(self.project_dir)
         contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
@@ -63,6 +63,8 @@ class PlanningMixin:
         return self._ensure_eligible_plan(base, retry), [s.kind for s in signals]
 
     def _task_ref_problem(self, subtask: str) -> str:
+        if self.config.control_mode == "freeform":
+            return ""
         tl = load_tasks(self.project_dir)
         if not tl.tasks:
             return ""
@@ -72,10 +74,14 @@ class PlanningMixin:
         eligible = tl.eligible_task()
         num = parse_task_ref_num(subtask)
         if not num:
+            if self.config.control_mode == "hybrid":
+                return ""
             return f"planner did not name the eligible task T{eligible.num}" if eligible else ""
         task = tl.get(num)
         if task is None:
             return f"T{num} is not in TASKS.md"
+        if self.config.control_mode == "hybrid":
+            return "" if task.open else f"T{num} is deferred or already resolved"
         if not eligible or task.num != eligible.num:
             if not task.open:
                 return f"T{num} is deferred or already resolved"

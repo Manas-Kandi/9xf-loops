@@ -10,6 +10,9 @@ high-level goal, the current state of a codebase, and a log of what previous
 iterations already did. Reply with the single most useful next step as ONE
 short, specific, actionable instruction (one or two sentences). Do not write
 code. Do not repeat work the log shows was already completed successfully.
+Prefer the smallest coherent implementation slice that can make real progress;
+for UI work this may mean building HTML, CSS, and JS together instead of forcing
+one brittle file-at-a-time step.
 All implementation files must be inside src/, tests/, or tools/. For web UI
 work, propose paths such as src/index.html, src/styles.css, and src/script.js,
 not repo-root index.html/styles.css/script.js.
@@ -33,12 +36,13 @@ Given the goal, the current codebase, and the history of what has already been
 done, what is the single most useful next step?"""
 
 TASKS_SECTION = """
-TASK LIST (work through the open tasks; the harness marks them done):
+TASK LIST (roadmap for the work; the harness marks completed tasks):
 {tasks}
 
-Begin your reply with `TASK Tn:` naming which open task this step advances,
-then the instruction. Example: `TASK T3: Implement the move logic in src/mover.py`
-Only choose the eligible next task. Do not choose queued, done, or deferred tasks.
+When using strict mode, begin your reply with `TASK Tn:` naming the eligible
+task. In hybrid mode, you may name a compact slice like `TASK T1-T3:` when
+those adjacent open tasks must be implemented together to leave a coherent
+build state. Do not target done or deferred tasks.
 """
 
 CONTRACT_SECTION = """
@@ -392,6 +396,9 @@ Rules:
   `src/script.js`; do not write root-level `index.html`, `styles.css`, or
   `script.js`.
 - Rewrite whole files; partial edits are not supported.
+- Implement the smallest coherent slice that leaves the project in a useful
+  build state. For frontend/dashboard work, writing related HTML, CSS, and JS
+  in one response is allowed when those files depend on each other.
 - Every response must leave the project runnable and validation-green. Do not
   import modules that are not already present in CURRENT CODEBASE unless you
   create those modules in the same response.
