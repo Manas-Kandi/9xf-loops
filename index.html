@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loopy</title>
+  <style>
+    :root{
+      --bg:#f5efe8; --ink:#201b18; --panel:#fffaf5; --line:#d8c7b8;
+      --accent:#c76e3a; --accent2:#7b4d34; --muted:#6d6158;
+      --green:#39755d;
+      --mono:ui-monospace, SFMono-Regular, Menlo, monospace;
+      --serif:Georgia, "Iowan Old Style", serif;
+      --sans:"Avenir Next", "Segoe UI", sans-serif;
+    }
+    *{box-sizing:border-box} body{margin:0;background:
+      radial-gradient(circle at top left, #fff7ef 0, #f5efe8 48%, #efe5db 100%);
+      color:var(--ink);font:16px/1.5 var(--sans)}
+    .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 56px}
+    .hero{display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:center;padding:36px 0}
+    .kicker{font:700 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+    h1{font:700 64px/0.95 var(--serif);margin:12px 0 14px}
+    p{color:var(--muted);max-width:52ch}
+    .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 18px;border-radius:999px;
+      border:1px solid var(--ink);text-decoration:none;color:var(--ink);background:transparent}
+    .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+    .card{background:rgba(255,250,245,.84);border:1px solid var(--line);border-radius:22px;padding:20px}
+    .stack{display:grid;gap:14px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:28px}
+    .grid h3,.stack h3{margin:0 0 6px;font-size:16px}
+    .small{font-size:13px;color:var(--muted)}
+    code{font:12px var(--mono);background:#f0e3d6;padding:2px 6px;border-radius:999px}
+    .footer{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    @media (max-width: 800px){
+      .hero,.grid{grid-template-columns:1fr}
+      h1{font-size:46px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <div class="kicker">Loopy for macOS</div>
+        <h1>Local coding loops with a cute co-pilot.</h1>
+        <p>Loopy is the desktop app for the `9xf` engine. It stays local-first, keeps setup light, supports Ollama for on-device models, and lets users bring their own hosted-model API keys without creating an account.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/Manas-Kandi/9xf-loops/releases/latest/download/Loopy-0.6.0-arm64.dmg">Download mac app</a>
+          <a class="btn" href="https://github.com/Manas-Kandi/9xf-loops">Docs</a>
+          <a class="btn" href="https://github.com/Manas-Kandi/9xf-loops/releases">Release notes</a>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <h3>What users get</h3>
+          <div class="small">A native macOS app, a mascot-led first-run setup, a run transcript, a live diff register, and local project storage.</div>
+        </div>
+        <div class="card">
+          <h3>Setup model options</h3>
+          <div class="small">Use Ollama locally or paste a hosted-model API key that stays on the device.</div>
+        </div>
+        <div class="card">
+          <h3>Minimal sign-up</h3>
+          <div class="small">No email collection. No cloud account. No remote execution service required.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h3>1. Install</h3>
+        <div class="small">Download the latest macOS release artifact and open Loopy.</div>
+      </div>
+      <div class="card">
+        <h3>2. Get set up</h3>
+        <div class="small">Loopy helps users connect to <code>http://localhost:11434</code> or save an API key locally.</div>
+      </div>
+      <div class="card">
+        <h3>3. Start a project</h3>
+        <div class="small">Pick a folder, write a goal, and let the loop plan, build, test, and commit.</div>
+      </div>
+    </section>
+
+    <div class="footer">
+      <div class="small">Desktop app branding: Loopy. Engine and config compatibility: `9xf`.</div>
+      <div class="small">Suggested deployment: static site on Vercel/Netlify/GitHub Pages, binaries on GitHub Releases.</div>
+    </div>
+  </div>
+</body>
+</html>
