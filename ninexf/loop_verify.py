@@ -64,6 +64,8 @@ class VerifyMixin:
         harness_green = result.passed and acc_passed is not False
         criteria = load_criteria(self.project_dir)
         failed: dict[int, str] = {}
+        quality_review = QualityReview()
+        quality_soft_errors: list[str] = []
         if harness_green and criteria:
             codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget,
                                          cache=self._file_cache)
@@ -84,6 +86,23 @@ class VerifyMixin:
                 if num not in passed_nums and num not in failed:
                     failed[num] = "no verdict from model"
 
+        if harness_green and not failed and cfg.quality_review_enabled:
+            try:
+                quality_review, _ = self._review_quality(
+                    purpose="quality_verify",
+                    subtask="Review the full implementation and identify the strongest remaining weakness.",
+                    validation_detail=result.detail,
+                    validation_warnings=result.warnings,
+                    acceptance_passed=acc_passed,
+                )
+            except BackendError as e:
+                quality_soft_errors.append(f"quality review skipped: {e}")
+            else:
+                if quality_review.parsed and not quality_review.ready:
+                    for idx, issue in enumerate(quality_review.issues, start=1):
+                        failed[100 + idx] = issue
+                logger.info(f"[9xf]   quality verify: {review_summary(quality_review)}")
+
         if harness_green and not failed:
             summary = "goal complete: harness validation green and all acceptance criteria passed"
             event = "finished"
@@ -92,7 +111,13 @@ class VerifyMixin:
             event = "verify"
             corrective = []
             crit_texts = dict(criteria)
+            quality_tasks_added = False
             for num, reason in sorted(failed.items()):
+                if num >= 100:
+                    if not quality_tasks_added:
+                        corrective.extend(self._quality_tasks(quality_review) or [f"Quality pass: {reason}"])
+                        quality_tasks_added = True
+                    continue
                 text = crit_texts.get(num, f"criterion C{num}")
                 corrective.append(f"Fix acceptance criterion C{num} ({text})"
                                   + (f": {reason}" if reason else ""))
@@ -106,9 +131,14 @@ class VerifyMixin:
                                   "(run via the acceptance criteria — the suite itself is read-only)")
             append_tasks(self.project_dir, corrective)
             if harness_green:
-                summary = (f"verify-done: {len(failed)} criteria failed, "
-                           "validation green; "
-                           f"added {len(corrective)} corrective task(s)")
+                if quality_review.parsed and not quality_review.ready:
+                    summary = ("verify-done: validation green, acceptance criteria passed, "
+                               "but quality review still found material weaknesses; "
+                               f"added {len(corrective)} corrective task(s)")
+                else:
+                    summary = (f"verify-done: {len(failed)} criteria failed, "
+                               "validation green; "
+                               f"added {len(corrective)} corrective task(s)")
             else:
                 summary = (f"verify-done: validation "
                            f"{'green' if result.passed else 'FAILED'}; "
@@ -123,7 +153,7 @@ class VerifyMixin:
         entry = LogEntry(
             iteration=iteration, timestamp=now_iso(), subtask="(verify goal completion)",
             summary=summary, validation_passed=result.passed,
-            validation_detail=result.detail, errors=errors, commit=commit_hash,
+            validation_detail=result.detail, errors=errors, soft_errors=quality_soft_errors, commit=commit_hash,
             validation_warnings=result.warnings,
             event=event, mode="verify_done", tests_ran=result.tests_ran,
             tasks_done=done, tasks_total=total,
@@ -131,6 +161,12 @@ class VerifyMixin:
             failure_kind=result.failure_kind,
             error_signature=result.error_signature,
             error_excerpt=result.error_excerpt,
+            quality_status=quality_review.status,
+            quality_score=quality_review.total_score,
+            quality_scores=quality_review.scores,
+            quality_issues=quality_review.issues,
+            quality_next_focus=quality_review.next_focus,
+            quality_summary=review_summary(quality_review),
             model_calls=self._take_model_calls(),
             context_overflow=self.backend.take_overflow(),
         )

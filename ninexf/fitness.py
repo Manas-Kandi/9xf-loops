@@ -23,6 +23,8 @@ def fitness_of(entry: dict) -> tuple:
     return (
         1 if entry.get("acceptance_passed") else 0,
         1 if entry.get("validation_passed") else 0,
+        1 if entry.get("quality_status") == "READY" else 0,
+        entry.get("quality_score", 0),
         entry.get("tasks_done", 0),
         entry.get("tests_ran", 0),
         -len(entry.get("errors") or []),

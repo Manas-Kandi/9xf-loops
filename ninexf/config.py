@@ -43,6 +43,7 @@ DEFAULTS = {
     "reflection_enabled": True,
     "reflection_every": 2,
     "reflection_max_notes": 3,
+    "quality_review_enabled": True,
     "acceptance_tests": False,
     "stop_on_goal_complete": False,
     "critic_enabled": False,
@@ -88,6 +89,7 @@ PRESETS = {
         "reflection_enabled": True,
         "reflection_every": 1,
         "reflection_max_notes": 4,
+        "quality_review_enabled": True,
         "max_task_failures": 4,
         "max_verify_attempts": 5,
         "acceptance_tests": True,
@@ -104,6 +106,7 @@ PRESETS = {
         "repair_attempts": 0,
         "format_retry_attempts": 1,
         "reflection_enabled": False,
+        "quality_review_enabled": False,
         "keep_best": False,
         "acceptance_tests": False,
     },
@@ -141,6 +144,7 @@ class Config:
     reflection_enabled: bool = DEFAULTS["reflection_enabled"]
     reflection_every: int = DEFAULTS["reflection_every"]
     reflection_max_notes: int = DEFAULTS["reflection_max_notes"]
+    quality_review_enabled: bool = DEFAULTS["quality_review_enabled"]
     acceptance_tests: bool = DEFAULTS["acceptance_tests"]
     stop_on_goal_complete: bool = DEFAULTS["stop_on_goal_complete"]
     critic_enabled: bool = DEFAULTS["critic_enabled"]

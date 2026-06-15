@@ -9,6 +9,9 @@ class PlanningMixin:
     def _current_blocker(self) -> str:
         entries = read_entries(self.project_dir)
         iterations = [e for e in entries if e.get("event") == "iteration"]
+        quality_blocker = self._quality_blocker()
+        if quality_blocker:
+            return quality_blocker
         recent_warning = self._persistent_warning()
         if recent_warning:
             count = 0

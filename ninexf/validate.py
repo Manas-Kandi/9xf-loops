@@ -484,6 +484,11 @@ def _dashboard_quality_warnings(probe: _HTMLProbe, css_sources: list[str]) -> li
             "product_warning: frontend_static: dashboard-like CSS appears visually sparse; "
             "add stronger spacing, hierarchy, and surface styling"
         )
+    if "100vh" in css_blob or "height: 100vh" in css_blob:
+        warnings.append(
+            "product_warning: frontend_static: dashboard-like CSS relies on 100vh/full-height layout; "
+            "this is often brittle on small or mobile viewports"
+        )
     metric_blocks = sum(
         1 for tag, attrs in probe.tags
         if tag in {"div", "section", "article", "li"}
@@ -645,6 +650,11 @@ def _frontend_static_errors(
 
         if dashboard_like:
             warnings.extend(_dashboard_quality_warnings(probe, css_sources))
+            if len(re.findall(r"<svg\b", source, flags=re.I)) > 1:
+                warnings.append(
+                    f"product_warning: frontend_static: {rel}: multiple nested SVG regions detected; "
+                    "confirm chart markup is intentional and not duplicating the root svg container"
+                )
             numbers = _numeric_value_count(visible_text)
             if numbers < 3:
                 _add_phase_issue(

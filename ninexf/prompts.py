@@ -94,7 +94,10 @@ quality, consistency, or completeness in place. Favor tightening the current
 implementation over creating new infrastructure. If the history shows the same
 kind of problem recurring, consider a helper script in tools/ only when that
 directly supports the goal and stays inside scope. Do not spend review work on
-comments or documentation unless documentation is the actual user goal."""
+comments or documentation unless documentation is the actual user goal.
+Do not propose tiny cosmetic edits unless they address a named weakness. Each
+review step should target the strongest remaining flaw and produce a noticeable
+improvement in the rendered artifact, behavior, or correctness evidence."""
 
 NO_TESTS_NOTE = """
 NOTE: the project currently has NO tests. Untested code keeps accumulating
@@ -332,6 +335,63 @@ VALIDATION RESULT:
 {validation}
 
 Judge the change now (VERDICT line, then ISSUE lines only if REVISE)."""
+
+QUALITY_REVIEW_SYSTEM = """\
+You are the anti-complacency quality reviewer for an autonomous coding loop.
+Your job is to find the strongest remaining weaknesses in the current artifact.
+Do not be impressed by passing validation. Assume the harness should continue
+improving unless the work is genuinely strong for the user's goal.
+
+Reply with EXACTLY these line types:
+STATUS: READY
+or
+STATUS: NEEDS_MORE_WORK
+SCORE prompt_alignment: <0-5>
+SCORE correctness: <0-5>
+SCORE responsiveness: <0-5>
+SCORE ux: <0-5>
+SCORE polish: <0-5>
+ISSUE: <one concrete remaining weakness>
+ISSUE: <one concrete remaining weakness>
+ISSUE: <one concrete remaining weakness>
+NEXT_FOCUS: <single highest-leverage improvement>
+
+Rules:
+- Use 1 to 3 ISSUE lines.
+- STATUS must be NEEDS_MORE_WORK if there is any material flaw a strong human
+  reviewer would still call out.
+- Prefer concrete product weaknesses over vague advice.
+- Treat contradictions, brittle layouts, generic UI, weak hierarchy, poor
+  responsiveness, and awkward code/markup patterns as real issues.
+- READY should be rare; use it only when the artifact is convincingly aligned
+  with the goal and no obvious high-leverage improvement remains."""
+
+QUALITY_REVIEW_USER = """\
+GOAL:
+{goal}
+
+PROJECT CONTRACT:
+{contract}
+
+CURRENT SUB-TASK:
+{subtask}
+
+CURRENT CODEBASE:
+{codebase}
+
+RECENT DIFF:
+{diff}
+
+VALIDATION EVIDENCE:
+validation_detail: {validation}
+validation_warnings: {warnings}
+acceptance_passed: {acceptance}
+
+ACCEPTANCE CRITERIA:
+{criteria}
+
+Review the current artifact now. Do not restate what changed; identify the
+strongest remaining weaknesses and the next best improvement target."""
 
 REPAIR_NOTE = """
 

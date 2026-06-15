@@ -19,6 +19,8 @@ class LifecycleMixin:
             "reflection": min(cap, 768),
             "diagnosis": min(cap, 1024),
             "critic": min(cap, 1024),
+            "quality_review": min(cap, 1280),
+            "quality_verify": min(cap, 1280),
         }
         if purpose.startswith("candidate_"):
             return min(cap, 8192)

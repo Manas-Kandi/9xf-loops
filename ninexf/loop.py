@@ -25,6 +25,7 @@ from ninexf.loop_decompose import DecomposeMixin
 from ninexf.loop_execution import ExecutionMixin
 from ninexf.loop_lifecycle import LifecycleMixin
 from ninexf.loop_planning import PlanningMixin
+from ninexf.loop_quality import QualityMixin
 from ninexf.loop_recovery import RecoveryMixin
 from ninexf.loop_reflection import ReflectionMixin
 from ninexf.loop_verify import VerifyMixin
@@ -36,6 +37,7 @@ class LoopRunner(
     PlanningMixin,
     DecomposeMixin,
     RecoveryMixin,
+    QualityMixin,
     VerifyMixin,
     ExecutionMixin,
     ReflectionMixin,
@@ -240,6 +242,23 @@ class LoopRunner(
             run_acceptance(self.project_dir, cfg.validation_timeout, cfg.allow_network)
             if written else (None, 0))
 
+        quality_review = QualityReview()
+        quality_summary = ""
+        if validation_passed and not errors and written and cfg.quality_review_enabled:
+            try:
+                quality_review, _ = self._review_quality(
+                    purpose="quality_review",
+                    subtask=subtask,
+                    validation_detail=validation_detail,
+                    validation_warnings=outcome.validation_warnings,
+                    acceptance_passed=acceptance_passed,
+                )
+                quality_summary = review_summary(quality_review)
+                if quality_review.parsed:
+                    logger.info(f"[9xf]   quality: {quality_summary}")
+            except BackendError as e:
+                soft_errors.append(f"quality review skipped: {e}")
+
         failed = not validation_passed or bool(errors)
         regression = prev_passed and failed
         files_written_rel = [str(p.relative_to(self.project_dir)) for p in written]
@@ -413,6 +432,12 @@ class LoopRunner(
             error_signature=outcome.error_signature,
             error_excerpt=outcome.error_excerpt,
             diagnosis=diagnosis,
+            quality_status=quality_review.status,
+            quality_score=quality_review.total_score,
+            quality_scores=quality_review.scores,
+            quality_issues=quality_review.issues,
+            quality_next_focus=quality_review.next_focus,
+            quality_summary=quality_summary,
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,

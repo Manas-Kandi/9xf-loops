@@ -46,11 +46,13 @@ from ninexf.prompts import (
     FORMAT_RETRY_NOTE,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
     CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REFLECTION_SYSTEM,
+    QUALITY_REVIEW_SYSTEM, QUALITY_REVIEW_USER,
     REFLECTION_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
     TASK_ELIGIBILITY_NUDGE,
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
+from ninexf.quality import QualityReview, parse_quality_review, review_summary
 from ninexf.registry import append_activity, read_state, write_state
 from ninexf.sandbox import WRITABLE_DIRS, ContainmentViolation, safe_write
 from ninexf.stuck import detect_signals

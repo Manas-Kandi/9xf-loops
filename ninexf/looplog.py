@@ -52,6 +52,12 @@ class LogEntry:
     error_signature: str = ""  # normalized first-error signature for stuck/diagnosis
     error_excerpt: str = ""  # capped actionable validation evidence
     diagnosis: str = ""  # optional no-write diagnosis before repeated repairs
+    quality_status: str = ""  # READY | NEEDS_MORE_WORK | ""
+    quality_score: int = 0  # summed 0-25 score from quality review
+    quality_scores: dict[str, int] = field(default_factory=dict)
+    quality_issues: list[str] = field(default_factory=list)
+    quality_next_focus: str = ""
+    quality_summary: str = ""
 
 
 def now_iso() -> str:

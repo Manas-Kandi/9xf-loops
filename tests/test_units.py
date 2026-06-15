@@ -31,6 +31,7 @@ from ninexf.models import (
     NVIDIA_QWEN_NEXT_MODEL,
     model_options,
 )
+from ninexf.quality import parse_quality_review
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, PLANNER_SYSTEM, REPAIR_NOTE
@@ -657,9 +658,35 @@ class TestFitness(unittest.TestCase):
         ]
         self.assertEqual(best_state(entries)["commit"], "c2")
 
+    def test_quality_review_breaks_validation_ties(self):
+        better = self._e("c1", validation_passed=True, quality_status="READY",
+                         quality_score=22, iteration=1)
+        worse = self._e("c2", validation_passed=True, quality_status="NEEDS_MORE_WORK",
+                        quality_score=12, iteration=2)
+        self.assertGreater(fitness_of(better), fitness_of(worse))
+
     def test_empty(self):
         self.assertIsNone(best_state([]))
         self.assertIsNone(final_state([{"event": "iteration", "commit": ""}]))
+
+
+class TestQualityReview(unittest.TestCase):
+    def test_parse_quality_review(self):
+        review = parse_quality_review(
+            "STATUS: NEEDS_MORE_WORK\n"
+            "SCORE prompt_alignment: 3\n"
+            "SCORE correctness: 5\n"
+            "SCORE responsiveness: 2\n"
+            "SCORE ux: 4\n"
+            "SCORE polish: 1\n"
+            "ISSUE: hierarchy is weak\n"
+            "NEXT_FOCUS: improve the dashboard layout\n"
+        )
+        self.assertTrue(review.parsed)
+        self.assertEqual(review.status, "NEEDS_MORE_WORK")
+        self.assertEqual(review.total_score, 15)
+        self.assertEqual(review.issues, ["hierarchy is weak"])
+        self.assertEqual(review.next_focus, "improve the dashboard layout")
 
 
 class TestPresets(unittest.TestCase):
@@ -704,6 +731,7 @@ class TestPresets(unittest.TestCase):
         self.assertTrue(cfg.reflection_enabled)
         self.assertEqual(cfg.reflection_every, 1)
         self.assertEqual(cfg.reflection_max_notes, 4)
+        self.assertTrue(cfg.quality_review_enabled)
         self.assertTrue(cfg.keep_best)
         self.assertTrue(cfg.acceptance_tests)
         self.assertEqual(cfg.max_hours, 8)
@@ -720,6 +748,7 @@ class TestPhaseTokenCaps(unittest.TestCase):
         self.assertEqual(runner._max_tokens_for_purpose("decompose"), 2048)
         self.assertEqual(runner._max_tokens_for_purpose("planner"), 768)
         self.assertEqual(runner._max_tokens_for_purpose("verify_done"), 1536)
+        self.assertEqual(runner._max_tokens_for_purpose("quality_review"), 1280)
         self.assertEqual(runner._max_tokens_for_purpose("executor"), 8192)
 
     def test_phase_caps_respect_lower_config_cap(self):
@@ -1135,12 +1164,13 @@ class TestValidationEvidence(unittest.TestCase):
             "<rect x='12' y='0' width='10' height='12'></rect><rect x='24' y='0' width='10' height='14'></rect>"
             "</svg></main></body></html>"
         )
-        css.write_text("body{font-family:Arial}.metric{padding:4px}\n")
+        css.write_text("body{font-family:Arial;height:100vh}.metric{padding:4px}\n")
         result = validate(d, [html, css], timeout=5, allow_network=True, phase="final")
         self.assertTrue(result.passed, result.errors)
         joined = "\n".join(result.warnings)
         self.assertIn("responsive layout cues", joined)
         self.assertIn("visually sparse", joined)
+        self.assertIn("100vh", joined)
 
 
 class TestRepairEvidence(unittest.TestCase):

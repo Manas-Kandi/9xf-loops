@@ -943,6 +943,29 @@ class MockBackend(Backend):
             if "validation_passed: False" in user:
                 return "AVOID: repeating a failing implementation without first addressing the validation error."
             return "TRY: after a green change, inspect the result for missing polish before moving on."
+        if "Review the current artifact now" in user:
+            if self.scenario == "quality_needy":
+                return (
+                    "STATUS: NEEDS_MORE_WORK\n"
+                    "SCORE prompt_alignment: 3\n"
+                    "SCORE correctness: 5\n"
+                    "SCORE responsiveness: 2\n"
+                    "SCORE ux: 3\n"
+                    "SCORE polish: 2\n"
+                    "ISSUE: the current artifact still feels generic rather than well designed\n"
+                    "ISSUE: responsive behavior remains under-specified and brittle\n"
+                    "NEXT_FOCUS: strengthen layout hierarchy and mobile behavior in place\n"
+                )
+            return (
+                "STATUS: READY\n"
+                "SCORE prompt_alignment: 4\n"
+                "SCORE correctness: 5\n"
+                "SCORE responsiveness: 4\n"
+                "SCORE ux: 4\n"
+                "SCORE polish: 4\n"
+                "ISSUE: no material blocker remains\n"
+                "NEXT_FOCUS: keep tightening only if a clearly better version is found\n"
+            )
         if self.scenario == "finisher":
             return self._finisher(user)
         if self.scenario == "regressor":
@@ -951,6 +974,8 @@ class MockBackend(Backend):
             return self._explorer(user)
         if self.scenario == "repairer":
             return self._repairer(user)
+        if self.scenario == "quality_needy":
+            return self._finisher(user)
         if self.scenario == "bad_decompose":
             return self._bad_decompose(user)
         if self.scenario == "bad_dashboard":

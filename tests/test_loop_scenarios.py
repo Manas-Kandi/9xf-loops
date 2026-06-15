@@ -59,6 +59,20 @@ class TestFinisher(unittest.TestCase):
         finally:
             cleanup(project)
 
+    def test_quality_review_can_reopen_work_after_verify(self):
+        project = make_run("Greeting tool", "mock/quality_needy")
+        try:
+            entries = run_loop(project, max_iterations=8)
+            self.assertFalse(events(entries, "finished"))
+            verify = events(entries, "verify")
+            self.assertTrue(verify)
+            self.assertIn("quality review still found material weaknesses", verify[-1]["summary"])
+            self.assertEqual(verify[-1]["quality_status"], "NEEDS_MORE_WORK")
+            tasks_md = (project / "TASKS.md").read_text()
+            self.assertIn("Quality pass:", tasks_md)
+        finally:
+            cleanup(project)
+
 
 class TestRegressor(unittest.TestCase):
     """Phase 2: green commit, then repeated failures -> stuck signals fire and
