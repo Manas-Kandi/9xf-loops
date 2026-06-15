@@ -381,9 +381,9 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
 #diff .ctx{color:var(--faint)}
 
 /* ---------- modal ---------- */
-#overlay,#copyOverlay{position:fixed;inset:0;background:var(--scrim);display:none;
+#overlay,#copyOverlay,#onboardOverlay,#settingsOverlay,#aboutOverlay{position:fixed;inset:0;background:var(--scrim);display:none;
   align-items:center;justify-content:center;z-index:50}
-#overlay.show,#copyOverlay.show{display:flex}
+#overlay.show,#copyOverlay.show,#onboardOverlay.show,#settingsOverlay.show,#aboutOverlay.show{display:flex}
 .modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:26px;border-radius:10px}
 .modal h2{font-size:16px;font-weight:600;color:var(--txt);margin-bottom:18px}
 .field{margin-bottom:16px}
@@ -419,15 +419,57 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
   border-radius:5px;padding:1px 5px;background:var(--well)}
 .modal .actions .sp{margin-right:auto;color:var(--faint);font-size:11px;display:flex;
   align-items:center;gap:6px}
-@media (max-width:720px){.stats{grid-template-columns:repeat(3,1fr)}}
+.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:20px;align-items:stretch}
+.heroCard{padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.heroCard h1{font-size:32px;line-height:1.05;margin-bottom:8px}
+.heroCard h1 b{color:var(--accent)}
+.heroCard p{font-size:13px;color:var(--dim);max-width:48ch}
+.heroActions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.heroActions button,.heroActions a{display:inline-flex;align-items:center;justify-content:center;
+  text-decoration:none}
+.heroMeta{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+.heroChip{padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--well)}
+.heroChip .k{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.heroChip .v{margin-top:5px;font-size:12px;color:var(--txt)}
+.heroAside{display:flex;flex-direction:column;justify-content:space-between;gap:16px}
+.heroMascot{display:flex;align-items:center;gap:14px}
+.heroMascot .art{width:88px;height:88px;flex:none}
+.heroMascot .note{font-size:12.5px;color:var(--dim)}
+.startstrip{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 2px}
+.pillbtn{background:var(--well)}
+.sectionTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.onboard{width:720px;max-width:95vw;padding:0;overflow:hidden}
+.onTop{display:grid;grid-template-columns:240px 1fr}
+.onMascot{padding:28px 22px;border-right:1px solid var(--line);background:var(--well);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.onMascotArt{width:124px;height:124px}
+.onBubble{padding:12px 14px;border:1px solid var(--line2);border-radius:14px;background:var(--panel);font-size:12.5px;color:var(--txt);line-height:1.55}
+.onMain{padding:26px}
+.onKicker{font-size:10.5px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+.onTitle{font-size:24px;line-height:1.15;margin:8px 0 8px}
+.onText{font-size:13px;color:var(--dim);margin-bottom:18px}
+.choiceGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.choice{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);cursor:pointer}
+.choice:hover,.choice.active{border-color:var(--accent);background:var(--panel2)}
+.choice b{display:block;font-size:13px;margin-bottom:5px}
+.choice span{display:block;font-size:12px;color:var(--dim)}
+.onActions{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.miniNote{font-size:11.5px;color:var(--faint);margin-top:8px}
+.quietCard{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--well)}
+.quietCard h3{font-size:13px;margin-bottom:6px}
+@media (max-width:720px){
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .hero,.onTop,.choiceGrid{grid-template-columns:1fr}
+  .onMascot{border-right:0;border-bottom:1px solid var(--line)}
+  .heroMeta{grid-template-columns:1fr}
+}
 </style></head><body class="home">
 
 <aside id="side">
   <div id="brand" onclick="goHome()" title="Home" role="button" tabindex="0">
-    <div class="word">9<b>xf</b></div>
-    <div class="tag">autonomous coding loops</div>
+    <div class="word">Lo<b>opy</b></div>
+    <div class="tag">local coding loops</div>
   </div>
-  <button id="newBtn" class="primary" title="New session  (n)" aria-label="New session">+ New session</button>
+  <button id="newBtn" class="primary" title="New project  (n)" aria-label="New project">+ New project</button>
   <div class="raillabel"><span>Sessions</span><span class="lvchip" id="railLevel" style="display:none"></span></div>
   <div id="runlist" role="list"></div>
   <div id="railfoot"><span id="clock">--:--:--</span>
@@ -458,6 +500,39 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
 
   <section id="home" aria-label="overview">
     <div class="hwrap">
+      <div class="hero">
+        <div class="heroCard">
+          <div class="onKicker">Loopy v1</div>
+          <h1>Your local <b>coding loop</b> with a cute co-pilot.</h1>
+          <p>Pick a folder, choose a model, and let Loopy plan, build, test, and commit on your machine. No account, no email capture, no hosted runtime.</p>
+          <div class="heroActions">
+            <button class="primary" onclick="launchPrimaryFlow()">Get started</button>
+            <button onclick="openExistingProject()">Open existing project</button>
+            <button onclick="openSettings()">Settings</button>
+            <button onclick="openAbout()">About</button>
+            <button onclick="openDocs()">Docs</button>
+          </div>
+          <div class="heroMeta">
+            <div class="heroChip"><div class="k">Install</div><div class="v">macOS-first desktop release</div></div>
+            <div class="heroChip"><div class="k">Models</div><div class="v" id="heroModel">Local Ollama or your own API key</div></div>
+            <div class="heroChip"><div class="k">Storage</div><div class="v">Settings and keys stay on this Mac</div></div>
+          </div>
+        </div>
+        <div class="heroAside heroCard">
+          <div class="heroMascot">
+            <div class="art" id="homeMascotArt"></div>
+            <div>
+              <div style="font-size:14px;font-weight:600">Loopy is on guide duty.</div>
+              <div class="note" id="homeMascotNote">I’ll help you pick a model and get your first project running.</div>
+            </div>
+          </div>
+          <div class="quietCard">
+            <h3>Start page</h3>
+            <div class="note">Use <b>Get started</b> on a first launch, or open an existing Loopy project to jump straight into the transcript and diff view.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="hhead">
         <div>
           <div class="hgreet"><span class="spark">✦</span> <span id="greetLine">What's up next?</span></div>
@@ -473,11 +548,19 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
       </div>
 
       <div class="hrule"></div>
+      <div class="sectionTop">
+        <div class="hsec" style="margin:0"><span>Recent momentum</span><span class="tag" id="streakTag"></span></div>
+        <div class="startstrip">
+          <button class="pillbtn" onclick="openNew()">New project</button>
+          <button class="pillbtn" onclick="openSettings()">Change defaults</button>
+          <button class="pillbtn" onclick="openAbout()">Check updates</button>
+        </div>
+      </div>
       <div class="stats" id="stats"></div>
       <div class="statnote" id="statnote"></div>
 
       <div class="hrule"></div>
-      <div class="hsec"><span>Activity · last 20 weeks</span><span class="tag" id="streakTag"></span></div>
+      <div class="hsec"><span>Activity · last 20 weeks</span><span class="tag"></span></div>
       <div class="heatrow">
         <div class="heatscroll"><div class="heat" id="heat"></div></div>
         <div class="heatleg">less
@@ -496,7 +579,7 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
       <div class="panehead"><span>Transcript</span>
         <span style="display:flex;align-items:center;gap:8px">
           <span id="livehint"></span>
-          <button id="playBtn" class="miniToggle" title="Let Looper hop around your transcript">✦ Looper</button>
+          <button id="playBtn" class="miniToggle" title="Let Loopy hop around your transcript">✦ Loopy</button>
           <button id="diffBtn" class="miniToggle" title="Show or hide the diff register">Diff</button>
         </span></div>
       <div id="chat"></div>
@@ -513,22 +596,22 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
   </div>
 </main>
 
-<!-- Looper, the pixel mascot -->
-<div id="mascot" class="idle" title="hi, I'm Looper" role="button" tabindex="0" aria-label="Looper the mascot">
+<!-- Loopy, the pixel mascot -->
+<div id="mascot" class="idle" title="hi, I'm Loopy" role="button" tabindex="0" aria-label="Loopy the mascot">
   <div id="bubble" aria-live="polite"></div>
   <div id="zzz">z</div>
   <div id="mascotArt"></div>
 </div>
 
 <div id="overlay" role="dialog" aria-modal="true"><div class="modal frame">
-  <h2>New session</h2>
+  <h2 id="composeTitle">New project</h2>
   <div class="field"><span class="lbl">Folder</span>
     <div class="row"><input id="fDir" placeholder="/Users/you/runs/my-tool" autocomplete="off">
       <button style="flex:0 0 auto" onclick="pickFolder()">Browse</button></div>
     <div id="browser" style="display:none"></div>
-    <div class="hint">a new or empty folder — or an existing 9xf run to continue</div>
+    <div class="hint" id="composeHint">A new or empty folder, or an existing Loopy project to continue.</div>
   </div>
-  <div class="field"><span class="lbl">Goal — the unchanging north star</span>
+  <div class="field" id="goalField"><span class="lbl">Goal — the unchanging north star</span>
     <textarea id="fGoal" placeholder="Write a CLI tool that organizes files in a directory by type"></textarea></div>
   <div class="field"><span class="lbl">Mode</span>
     <div class="seg-switch" role="radiogroup">
@@ -551,6 +634,55 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
   </div>
 </div></div>
 
+<div id="onboardOverlay" role="dialog" aria-modal="true"><div class="modal frame onboard">
+  <div class="onTop">
+    <div class="onMascot">
+      <div class="onMascotArt" id="onboardMascotArt"></div>
+      <div class="onBubble" id="onboardBubble">Hi, I’m Loopy. I’ll help you get this machine ready without any sign-up ceremony.</div>
+    </div>
+    <div class="onMain">
+      <div id="onboardBody"></div>
+    </div>
+  </div>
+</div></div>
+
+<div id="settingsOverlay" role="dialog" aria-modal="true"><div class="modal frame">
+  <h2>Loopy settings</h2>
+  <div class="field"><span class="lbl">Default mode</span>
+    <div class="seg-switch" role="radiogroup">
+      <button id="sLocalBtn" onclick="setSettingsMode('ollama')">Local with Ollama</button>
+      <button id="sApiBtn" onclick="setSettingsMode('api')">API key</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="field"><span class="lbl">Local model</span><select id="sLocalModel"></select></div>
+    <div class="field"><span class="lbl">API model</span><select id="sApiModel"></select></div>
+  </div>
+  <div class="field"><span class="lbl">Ollama endpoint</span><input id="sOllamaEndpoint" placeholder="http://localhost:11434"></div>
+  <div class="field"><span class="lbl">API key</span><input id="sApiKey" type="password" placeholder="stored locally on this Mac"></div>
+  <div class="hint" id="settingsSavedHint">Loopy stores app defaults separately from each project’s `9xf.config.json`.</div>
+  <div class="formerr" id="settingsErr" role="alert"></div>
+  <div class="actions">
+    <button onclick="closeSettings()">Close</button>
+    <button class="primary" onclick="saveSettingsForm()">Save settings</button>
+  </div>
+</div></div>
+
+<div id="aboutOverlay" role="dialog" aria-modal="true"><div class="modal frame">
+  <h2>About Loopy</h2>
+  <div class="quietCard">
+    <h3 id="aboutVersion">Version</h3>
+    <div class="note">Loopy is a local-first coding loops app. Runs, settings, and API keys stay on your machine.</div>
+  </div>
+  <div class="row" style="margin-top:16px">
+    <button onclick="openDocs()">Docs</button>
+    <button onclick="openReleases()">Check updates</button>
+  </div>
+  <div class="actions">
+    <button onclick="closeAbout()">Close</button>
+  </div>
+</div></div>
+
 <div id="copyOverlay" role="dialog" aria-modal="true"><div class="modal frame">
   <h2>Diagnostic bundle</h2>
   <div class="field"><span class="lbl">Copy this text</span>
@@ -569,6 +701,16 @@ const pad3 = n => String(n).padStart(3,'0');
 let current = null, pinnedCommit = null, lastDiffCommit = null, lastRender = '', lastRail = '';
 let openIters = new Set(), touched = new Set(), autoIter = null, lastEntries = [];
 let openActs = new Set();
+let appState = null, appSettings = null, settingsMode = 'ollama', composeMode = 'new';
+let selectedDirIsRun = false;
+const DOCS_URL = 'https://github.com/Manas-Kandi/9xf-loops';
+const RELEASES_URL = 'https://github.com/Manas-Kandi/9xf-loops/releases';
+function openExternal(url){
+  if (window.ninexf && window.ninexf.openExternal) return window.ninexf.openExternal(url);
+  return window.open(url, '_blank', 'noopener');
+}
+function openDocs(){ return openExternal(DOCS_URL); }
+function openReleases(){ return openExternal(RELEASES_URL); }
 
 /* instrument clock */
 setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11,19) + ' UTC'; }, 1000);
@@ -599,7 +741,7 @@ async function tickRuns(){
       <div><div class="g">${esc(r.goal)}</div>
       <div class="s">${r.finished?'finished':esc(r.status)} · iter ${r.iteration}${r.tasks_total?` · ${r.tasks_done}/${r.tasks_total}`:''}</div></div>
     </div>`).join('') ||
-    '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no sessions yet — hit New session</div>';
+    '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no projects yet — hit New project</div>';
   if (html !== lastRail){ $('runlist').innerHTML = html; lastRail = html; }
   // any run live? nudge the mascot into work mode while on the home screen
   if (!current) mascotWorkingHint = runs.some(r => r.status === 'running');
@@ -655,9 +797,17 @@ function renderHome(s){
   $('railStreak').textContent = s.current_streak ? `🔥 ${s.current_streak}d` : '';
 
   $('greetSub').textContent = s.sessions
-    ? "Looper's kept the lights on — pick a session, or start something new."
+    ? "Loopy's kept the lights on — pick a project, or start something new."
     : 'Set a goal and a local model will plan, build, test, and commit on its own.';
   $('greetLine').textContent = s.sessions ? greetByLevel(p.level) : "What's up next?";
+  if (appSettings){
+    $('heroModel').textContent = appSettings.preferred_mode === 'api'
+      ? `Saved API model: ${appSettings.api_model}`
+      : `Saved local model: ${appSettings.preferred_model}`;
+    $('homeMascotNote').textContent = appSettings.onboarding_complete
+      ? 'Your defaults are saved. I can open an existing project or kick off a fresh one.'
+      : 'First launch? I’ll walk you through model setup in under a minute.';
+  }
 }
 function greetByLevel(l){
   if (l >= 7) return 'Welcome back, legend.';
@@ -1307,13 +1457,84 @@ $('copyBtn').onclick = async () => {
 /* ---------- new session modal ---------- */
 let mode = '';
 function setMode(m){ mode = m; $('mReg').className = m ? '' : 'on'; $('mOver').className = m ? 'on' : ''; }
-function openNew(){ $('overlay').classList.add('show'); $('fErr').textContent=''; loadModels(); $('fGoal').focus(); }
+let lastModelPayload = null;
+let onboard = null;
+function providerModeFor(model){ return String(model||'').startsWith('ollama/') ? 'ollama' : 'api'; }
+function syncHomeMascots(){
+  $('homeMascotArt').innerHTML = spriteSvg(compose('happy', 'up', 'stand'));
+  $('onboardMascotArt').innerHTML = spriteSvg(compose('happy', 'up', 'stand'));
+}
+function setOnboardMascot(face, bubble){
+  $('onboardMascotArt').innerHTML = spriteSvg(compose(face, face === 'focus' ? 'chin' : 'up', 'stand'));
+  $('onboardBubble').textContent = bubble;
+}
+function applyComposeMode(){
+  const existing = composeMode === 'existing';
+  $('composeTitle').textContent = existing ? 'Open existing project' : 'New project';
+  $('composeHint').textContent = existing
+    ? 'Pick an existing Loopy project folder. If it already has 9xf.config.json, Loopy will resume it.'
+    : 'A new or empty folder, or an existing Loopy project to continue.';
+  $('goalField').style.display = existing ? 'none' : '';
+  $('startBtn').textContent = existing ? 'Open' : 'Start';
+}
+function populateModelSelects(m){
+  if (!m) return;
+  lastModelPayload = m;
+  const recommended = new Set(m.recommended || []);
+  const optHtml = (m.models || []).map(x => {
+    const label = recommended.has(x) ? `${x} · recommended` : x;
+    return `<option value="${esc(x)}">${esc(label)}</option>`;
+  }).join('');
+  $('fModel').innerHTML = optHtml;
+  $('sLocalModel').innerHTML = optHtml;
+  $('sApiModel').innerHTML = (m.api_models || []).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  if (appSettings){
+    $('fModel').value = appSettings.preferred_mode === 'api' ? appSettings.api_model : appSettings.preferred_model;
+    $('sLocalModel').value = appSettings.preferred_model;
+    $('sApiModel').value = appSettings.api_model;
+  }
+}
+async function loadModels(){
+  try{
+    const m = await (await fetch('/api/models')).json();
+    populateModelSelects(m);
+  }catch(e){}
+}
+async function loadAppState(){
+  try{
+    appState = await (await fetch('/api/onboarding')).json();
+    appSettings = appState.settings;
+  }catch(e){ return; }
+  $('aboutVersion').textContent = `Version ${appState.version}`;
+  settingsMode = appSettings.preferred_mode || 'ollama';
+  if (!$('fDir').value && appSettings.last_dir) $('fDir').value = appSettings.last_dir;
+  syncHomeMascots();
+  if (appState.needs_onboarding) openOnboarding();
+}
+function launchPrimaryFlow(){
+  if (appState && appState.needs_onboarding) openOnboarding();
+  else openNew();
+}
+function openExistingProject(){ openNew(true); }
+function openNew(existing=false){
+  composeMode = existing ? 'existing' : 'new';
+  selectedDirIsRun = false;
+  $('overlay').classList.add('show');
+  $('fErr').textContent = '';
+  if (!existing) $('fGoal').focus();
+  if (appSettings && appSettings.last_dir) $('fDir').value = appSettings.last_dir;
+  applyComposeMode();
+  loadModels();
+}
 function closeNew(){ $('overlay').classList.remove('show'); $('browser').style.display='none'; }
-$('newBtn').onclick = openNew;
+$('newBtn').onclick = () => openNew();
 const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
-const modalOpen = () => $('overlay').classList.contains('show');
+const modalOpen = () => $('overlay').classList.contains('show') || $('onboardOverlay').classList.contains('show')
+  || $('settingsOverlay').classList.contains('show') || $('aboutOverlay').classList.contains('show');
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape'){ closeNew(); $('copyOverlay').classList.remove('show'); return; }
+  if (e.key === 'Escape'){
+    closeNew(); closeOnboarding(); closeSettings(); closeAbout(); $('copyOverlay').classList.remove('show'); return;
+  }
   if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')){  // toggle sidebar
     e.preventDefault(); $('side').classList.toggle('collapsed'); return;
   }
@@ -1324,15 +1545,168 @@ document.addEventListener('keydown', e => {
     e.preventDefault(); openNew();
   }
 });
-async function loadModels(){
-  try{
-    const m = await (await fetch('/api/models')).json();
-    const recommended = new Set(m.recommended || []);
-    $('fModel').innerHTML = m.models.map(x => {
-      const label = recommended.has(x) ? `${x} · recommended` : x;
-      return `<option value="${esc(x)}" ${x===m.default?'selected':''}>${esc(label)}</option>`;
-    }).join('');
-  }catch(e){}
+function setSettingsMode(m){
+  settingsMode = m;
+  $('sLocalBtn').className = m === 'ollama' ? 'on' : '';
+  $('sApiBtn').className = m === 'api' ? 'on' : '';
+}
+function openSettings(){
+  $('settingsOverlay').classList.add('show');
+  $('settingsErr').textContent = '';
+  loadModels().then(() => {
+    if (!appSettings) return;
+    setSettingsMode(appSettings.preferred_mode || 'ollama');
+    $('sOllamaEndpoint').value = appSettings.ollama_endpoint || 'http://localhost:11434';
+    $('sApiKey').value = '';
+    $('settingsSavedHint').textContent = appSettings.api_key_present
+      ? 'An API key is already stored locally on this Mac. Leave the field blank to keep it.'
+      : 'No API key saved yet. Add one only if you want to use hosted models.';
+  });
+}
+function closeSettings(){ $('settingsOverlay').classList.remove('show'); }
+function openAbout(){ $('aboutOverlay').classList.add('show'); }
+function closeAbout(){ $('aboutOverlay').classList.remove('show'); }
+async function saveSettingsForm(){
+  const payload = {
+    preferred_mode: settingsMode,
+    preferred_model: $('sLocalModel').value || (appSettings && appSettings.preferred_model),
+    api_model: $('sApiModel').value || (appSettings && appSettings.api_model),
+    ollama_endpoint: $('sOllamaEndpoint').value.trim(),
+    onboarding_complete: true,
+  };
+  const apiKey = $('sApiKey').value.trim();
+  if (settingsMode === 'api' && apiKey){
+    const vr = await (await fetch('/api/validate/provider', {method:'POST', body: JSON.stringify({
+      model: payload.api_model, api_key: apiKey,
+    })})).json();
+    if (vr.error || !vr.ok){ $('settingsErr').textContent = vr.error || 'Could not save that API setup.'; return; }
+    payload.api_key = apiKey;
+  }
+  if (settingsMode === 'ollama'){
+    const vr = await (await fetch('/api/validate/ollama', {method:'POST', body: JSON.stringify({
+      endpoint: payload.ollama_endpoint,
+    })})).json();
+    if (vr.error || !vr.ok){ $('settingsErr').textContent = vr.error || 'Loopy could not reach Ollama there.'; return; }
+  }
+  const r = await (await fetch('/api/settings', {method:'POST', body: JSON.stringify(payload)})).json();
+  if (r.error){ $('settingsErr').textContent = r.error; return; }
+  appSettings = r.settings;
+  appState = {...appState, needs_onboarding:false, settings:r.settings};
+  closeSettings();
+  tickStats();
+}
+function openOnboarding(){
+  onboard = {
+    step:'welcome',
+    mode: (appSettings && appSettings.preferred_mode) || 'ollama',
+    ollamaEndpoint: (appSettings && appSettings.ollama_endpoint) || 'http://localhost:11434',
+    ollamaModels: [],
+    ollamaModel: (appSettings && appSettings.preferred_model) || '',
+    apiModel: (appSettings && appSettings.api_model) || 'mistral/mistral-small-2603',
+    apiKey: '',
+    error: '',
+    note: '',
+  };
+  $('onboardOverlay').classList.add('show');
+  renderOnboarding();
+}
+function closeOnboarding(){ $('onboardOverlay').classList.remove('show'); }
+function setOnboardStep(step, mode){
+  if (mode) onboard.mode = mode;
+  onboard.step = step;
+  onboard.error = '';
+  renderOnboarding();
+}
+function renderOnboarding(){
+  if (!onboard) return;
+  const body = $('onboardBody');
+  if (onboard.step === 'welcome'){
+    setOnboardMascot('happy', 'No sign-up maze. Just pick how you want Loopy to talk to models.');
+    body.innerHTML = `
+      <div class="onKicker">Welcome</div>
+      <div class="onTitle">Meet Loopy.</div>
+      <div class="onText">This app stays local-first: your runs stay on disk, there’s no email collection, and your API keys never leave this Mac unless you choose a hosted provider.</div>
+      <div class="choiceGrid">
+        <div class="choice ${onboard.mode==='ollama'?'active':''}" onclick="setOnboardStep('ollama','ollama')"><b>Use a local model</b><span>Connect to Ollama and pick an installed model.</span></div>
+        <div class="choice ${onboard.mode==='api'?'active':''}" onclick="setOnboardStep('api','api')"><b>Bring your own API key</b><span>Save a hosted-model key locally and use it for new projects.</span></div>
+      </div>
+      <div class="onActions"><span></span><button class="primary" onclick="setOnboardStep('${onboard.mode}')">Continue</button></div>`;
+    return;
+  }
+  if (onboard.step === 'ollama'){
+    setOnboardMascot('focus', onboard.ollamaModels.length
+      ? 'Nice, I found Ollama. Pick the local model you want as your default.'
+      : 'I’m checking whether Ollama is awake on this Mac.');
+    body.innerHTML = `
+      <div class="onKicker">Local setup</div>
+      <div class="onTitle">Use Ollama on your machine</div>
+      <div class="onText">Loopy will call the Ollama server directly. If it is not running yet, start Ollama first and then ask me to check again.</div>
+      <div class="field"><span class="lbl">Ollama endpoint</span><input id="onOllamaEndpoint" value="${esc(onboard.ollamaEndpoint)}"></div>
+      ${onboard.ollamaModels.length ? `<div class="field"><span class="lbl">Default model</span><select id="onOllamaModel">${onboard.ollamaModels.map(m => `<option value="${esc(m)}" ${m===onboard.ollamaModel?'selected':''}>${esc(m)}</option>`).join('')}</select></div>` : ''}
+      <div class="miniNote">${onboard.note || 'Install a model with `ollama pull gpt-oss:20b` or another coder model if the list is empty.'}</div>
+      <div class="formerr" role="alert">${esc(onboard.error || '')}</div>
+      <div class="onActions">
+        <button onclick="setOnboardStep('welcome')">Back</button>
+        <span style="display:flex;gap:10px">
+          <button onclick="checkOnboardOllama()">Check Ollama</button>
+          <button class="primary" onclick="finishOllamaOnboarding()" ${onboard.ollamaModels.length?'':'disabled'}>Save and continue</button>
+        </span>
+      </div>`;
+    return;
+  }
+  setOnboardMascot('content', 'Hosted model path: save the key locally here, and Loopy will use it only when you start a project.');
+  body.innerHTML = `
+    <div class="onKicker">API setup</div>
+    <div class="onTitle">Bring your own API key</div>
+    <div class="onText">Choose a hosted model, paste the key once, and Loopy will keep it locally on this Mac.</div>
+    <div class="field"><span class="lbl">API model</span><select id="onApiModel">${((lastModelPayload && lastModelPayload.api_models) || ['mistral/mistral-small-2603']).map(m => `<option value="${esc(m)}" ${m===onboard.apiModel?'selected':''}>${esc(m)}</option>`).join('')}</select></div>
+    <div class="field"><span class="lbl">API key</span><input id="onApiKey" type="password" placeholder="stored locally on this Mac"></div>
+    <div class="miniNote">No account is created here. Loopy only stores this key locally so it can start runs for you later.</div>
+    <div class="formerr" role="alert">${esc(onboard.error || '')}</div>
+    <div class="onActions">
+      <button onclick="setOnboardStep('welcome')">Back</button>
+      <button class="primary" onclick="finishApiOnboarding()">Save and continue</button>
+    </div>`;
+}
+async function checkOnboardOllama(){
+  onboard.ollamaEndpoint = $('onOllamaEndpoint').value.trim();
+  const r = await (await fetch('/api/validate/ollama', {method:'POST', body: JSON.stringify({
+    endpoint: onboard.ollamaEndpoint,
+  })})).json();
+  onboard.error = r.error || '';
+  onboard.note = r.ok ? 'Loopy found local models and can use this endpoint.' : '';
+  onboard.ollamaModels = r.models || [];
+  onboard.ollamaModel = onboard.ollamaModels[0] || onboard.ollamaModel;
+  renderOnboarding();
+}
+async function finishOllamaOnboarding(){
+  if ($('onOllamaModel')) onboard.ollamaModel = $('onOllamaModel').value;
+  const r = await (await fetch('/api/settings', {method:'POST', body: JSON.stringify({
+    preferred_mode:'ollama',
+    preferred_model:onboard.ollamaModel,
+    ollama_endpoint:onboard.ollamaEndpoint,
+    onboarding_complete:true,
+  })})).json();
+  if (r.error){ onboard.error = r.error; renderOnboarding(); return; }
+  appSettings = r.settings; appState = {...appState, needs_onboarding:false, settings:r.settings};
+  closeOnboarding(); openNew();
+}
+async function finishApiOnboarding(){
+  onboard.apiModel = $('onApiModel').value;
+  onboard.apiKey = $('onApiKey').value.trim();
+  const vr = await (await fetch('/api/validate/provider', {method:'POST', body: JSON.stringify({
+    model:onboard.apiModel, api_key:onboard.apiKey,
+  })})).json();
+  if (vr.error || !vr.ok){ onboard.error = vr.error || 'That API setup did not validate.'; renderOnboarding(); return; }
+  const r = await (await fetch('/api/settings', {method:'POST', body: JSON.stringify({
+    preferred_mode:'api',
+    api_model:onboard.apiModel,
+    onboarding_complete:true,
+    api_key:onboard.apiKey,
+  })})).json();
+  if (r.error){ onboard.error = r.error; renderOnboarding(); return; }
+  appSettings = r.settings; appState = {...appState, needs_onboarding:false, settings:r.settings};
+  closeOnboarding(); openNew();
 }
 async function pickFolder(){
   if (window.ninexf && window.ninexf.pickFolder){     /* electron: native macOS dialog */
@@ -1344,28 +1718,34 @@ async function pickFolder(){
 async function browseTo(path){
   let r; try{ r = await (await fetch('/api/browse?path='+encodeURIComponent(path))).json(); }catch(e){ return; }
   $('fDir').value = r.path;
+  selectedDirIsRun = !!r.is_run;
   const rows = (r.parent
       ? `<div class="bi" onclick="browseTo('${esc(r.parent)}')"><span class="ic">↑</span><span class="nm">..</span></div>`
       : '') +
     (r.dirs.length
-      ? r.dirs.map(d=>`<div class="bi" onclick="browseTo('${esc(d.path)}')"><span class="ic">▸</span><span class="nm">${esc(d.name)}</span>${d.is_run?'<span class="tag">9xf run</span>':''}</div>`).join('')
+      ? r.dirs.map(d=>`<div class="bi" onclick="browseTo('${esc(d.path)}')"><span class="ic">▸</span><span class="nm">${esc(d.name)}</span>${d.is_run?'<span class="tag">Loopy project</span>':''}</div>`).join('')
       : '<div class="bi muted"><span class="ic"></span><span class="nm">no subfolders here</span></div>');
   const b = $('browser'); b.style.display = 'flex';
   b.innerHTML =
-    `<div class="browpath" title="${esc(r.path)}">${esc(r.path)}${r.is_run?'  ·  existing 9xf run':''}</div>` +
+    `<div class="browpath" title="${esc(r.path)}">${esc(r.path)}${r.is_run?'  ·  existing Loopy project':''}</div>` +
     `<div class="browlist">${rows}</div>` +
-    `<div class="browfoot"><span class="sel">use this folder${r.is_run?' (continue run)':''}</span>` +
+    `<div class="browfoot"><span class="sel">use this folder${r.is_run?' (continue project)':''}</span>` +
     `<button class="primary" onclick="$('browser').style.display='none'">Use folder</button></div>`;
 }
 async function startSession(){
+  const chosenModel = $('fModel').value || null;
   const payload = {
     dir: $('fDir').value.trim(), goal: $('fGoal').value.trim(), preset: mode,
-    model: $('fModel').value || null,
+    model: chosenModel,
+    provider_mode: providerModeFor(chosenModel),
+    endpoint: providerModeFor(chosenModel) === 'ollama' ? (appSettings && appSettings.ollama_endpoint) : null,
     iterations: $('fIters').value ? parseInt($('fIters').value) : null,
     hours: $('fHours').value ? parseFloat($('fHours').value) : null,
   };
   if (!payload.dir){ $('fErr').textContent = 'Pick a folder first'; return; }
-  if (!payload.goal){ $('fErr').textContent = 'Write a goal — one sentence is enough'; return; }
+  if (composeMode !== 'existing' && !selectedDirIsRun && !payload.goal){
+    $('fErr').textContent = 'Write a goal — one sentence is enough'; return;
+  }
   const btn = $('startBtn');
   btn.disabled = true; btn.textContent = 'Starting…'; $('fErr').textContent = '';
   let r; try{ r = await (await fetch('/api/start', {method:'POST', body: JSON.stringify(payload)})).json(); }
@@ -1429,7 +1809,9 @@ initInteractive();
 initDiff();
 setMascotArt('idle');
 setMascotState('idle');
+syncHomeMascots();
 scheduleBlink();
+loadAppState();
 tickStats(); tickRuns();
 setInterval(tickRuns, 2500);
 setInterval(tickRun, 2000);

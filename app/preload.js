@@ -6,4 +6,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('ninexf', {
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
+  openExternal: url => ipcRenderer.invoke('open-external', url),
 });

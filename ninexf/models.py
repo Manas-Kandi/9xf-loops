@@ -24,6 +24,14 @@ RECOMMENDED_MODELS = (
     NVIDIA_KIMI_MODEL,
 )
 
+API_MODELS = (
+    MISTRAL_SMALL_MODEL,
+    NVIDIA_GEMMA_MODEL,
+    NVIDIA_QWEN_MODEL,
+    NVIDIA_QWEN_NEXT_MODEL,
+    NVIDIA_KIMI_MODEL,
+)
+
 
 def ollama_model_id(name: str) -> str:
     return f"ollama/{name}"
@@ -43,3 +51,7 @@ def model_options(installed_ollama_models: list[str] | tuple[str, ...] = ()) -> 
             options.append(model)
             seen.add(model)
     return options
+
+
+def api_model_options() -> list[str]:
+    return list(API_MODELS)

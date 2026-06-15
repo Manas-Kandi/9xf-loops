@@ -5,6 +5,7 @@ a commit diff — the same calls the web/Electron UI makes."""
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
 import time
@@ -16,6 +17,8 @@ from ninexf.webapp import make_server
 from ninexf.looplog import LogEntry, append_entry, now_iso
 from ninexf.registry import append_activity, write_state
 from tests.helpers import cleanup
+
+os.environ.setdefault("NINEXF_APP_DIR", tempfile.mkdtemp(prefix="loopy-app-"))
 
 
 def _get(url: str) -> dict | list:
@@ -44,12 +47,54 @@ class TestWebApp(unittest.TestCase):
     def test_page_and_static_endpoints(self):
         with urllib.request.urlopen(self.base + "/", timeout=10) as resp:
             html = resp.read().decode()
-        self.assertIn("New session", html)
+        self.assertIn("Get started", html)
         self.assertIn("diffpane", html)
         self.assertIsInstance(_get(self.base + "/api/runs"), list)
         b = _get(self.base + "/api/browse?path=")
         self.assertIn("dirs", b)
         self.assertTrue(b["path"])
+        onboarding = _get(self.base + "/api/onboarding")
+        self.assertIn("needs_onboarding", onboarding)
+        self.assertIn("settings", onboarding)
+
+    def test_settings_round_trip_and_validation_endpoints(self):
+        onboarding = _get(self.base + "/api/onboarding")
+        self.assertTrue(onboarding["needs_onboarding"])
+
+        saved = _post(self.base + "/api/settings", {
+            "preferred_mode": "api",
+            "api_model": "mistral/mistral-small-2603",
+            "api_key": "test-key",
+            "onboarding_complete": True,
+        })
+        self.assertTrue(saved.get("ok"), saved)
+        self.assertTrue(saved["settings"]["api_key_present"])
+        self.assertTrue(saved["settings"]["onboarding_complete"])
+
+        settings = _get(self.base + "/api/settings")
+        self.assertEqual(settings["preferred_mode"], "api")
+        self.assertEqual(settings["api_model"], "mistral/mistral-small-2603")
+        self.assertTrue(settings["api_key_present"])
+
+        bad_provider = _post(self.base + "/api/validate/provider", {
+            "model": "mistral/mistral-small-2603",
+            "api_key": "",
+        })
+        self.assertFalse(bad_provider.get("ok"))
+        self.assertIn("API key", bad_provider.get("error", ""))
+
+        good_provider = _post(self.base + "/api/validate/provider", {
+            "model": "mistral/mistral-small-2603",
+            "api_key": "test-key",
+        })
+        self.assertTrue(good_provider.get("ok"))
+        self.assertEqual(good_provider["provider"], "mistral")
+
+        ollama = _post(self.base + "/api/validate/ollama", {
+            "endpoint": "http://127.0.0.1:65534",
+        })
+        self.assertFalse(ollama.get("ok"))
+        self.assertIn("Ollama", ollama.get("error", ""))
 
     def test_start_run_watch_finish_and_diff(self):
         d = Path(tempfile.mkdtemp(prefix="9xf-webapp-")).resolve()
@@ -103,6 +148,31 @@ class TestWebApp(unittest.TestCase):
         try:
             r = _post(self.base + "/api/start", {"dir": str(d), "goal": ""})
             self.assertIn("goal", r.get("error", ""))
+        finally:
+            cleanup(d)
+
+    def test_start_uses_saved_default_model_when_none_is_provided(self):
+        _post(self.base + "/api/settings", {
+            "preferred_mode": "ollama",
+            "preferred_model": "mock/finisher",
+            "onboarding_complete": True,
+        })
+        d = Path(tempfile.mkdtemp(prefix="9xf-webapp-")).resolve()
+        try:
+            r = _post(self.base + "/api/start", {
+                "dir": str(d),
+                "goal": "Greeting tool",
+                "iterations": 10,
+                "delay": 0,
+            })
+            self.assertTrue(r.get("ok"), r)
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                detail = _get(self.base + f"/api/run?dir={d}")
+                if detail.get("finished"):
+                    break
+                time.sleep(0.5)
+            self.assertTrue(detail.get("finished"), f"run never finished: {detail}")
         finally:
             cleanup(d)
 

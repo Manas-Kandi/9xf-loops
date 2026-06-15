@@ -1,9 +1,9 @@
-// 9xf desktop app: a thin Electron shell around the `9xf app` server.
+// Loopy desktop app: a thin Electron shell around the `ninexf app` server.
 // It spawns `python -m ninexf app` (the same zero-dependency server the
 // browser UI uses), waits for it to come up, and hosts it in a dark native
 // window with a native folder picker bridged via preload.js.
 
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const net = require('net');
@@ -61,7 +61,7 @@ function startServer(onStarted) {
   spawnedHere = true;
   server.on('exit', code => {
     if (win && !win.isDestroyed() && code !== 0 && code !== null) {
-      dialog.showErrorBox('9xf server stopped',
+      dialog.showErrorBox('Loopy backend stopped',
         `The python server exited (code ${code}).\n` +
         'Check that python3 can import ninexf (pip install -e . in the repo).');
     }
@@ -84,7 +84,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 600,
     backgroundColor: '#161513',
-    title: '9xf',
+    title: 'Loopy',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -92,23 +92,33 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    shell.openExternal(target);
+    return { action: 'deny' };
+  });
   win.loadURL(url);
 }
 
 ipcMain.handle('pick-folder', async () => {
   const res = await dialog.showOpenDialog(win, {
-    title: 'Choose a folder for this session',
+    title: 'Choose a folder for this Loopy project',
     properties: ['openDirectory', 'createDirectory'],
   });
   return res.canceled ? null : res.filePaths[0];
 });
 
+ipcMain.handle('open-external', async (_event, target) => {
+  if (!target) return false;
+  await shell.openExternal(String(target));
+  return true;
+});
+
 app.whenReady().then(() => {
-  // reuse an already-running `9xf app` (e.g. started from the CLI) if present
+  // reuse an already-running `ninexf app` (e.g. started from the CLI) if present
   ping(alreadyUp => {
     const ready = () => waitForServer(60, ok => {
       if (!ok) {
-        dialog.showErrorBox('9xf could not start',
+        dialog.showErrorBox('Loopy could not start',
           `No server at ${url}.\nIs python3 installed and ninexf importable?\n` +
           '(from the repo: pip install -e .)');
         app.quit();
@@ -126,7 +136,7 @@ app.whenReady().then(() => {
         return;
       }
       if (process.env.NINEXF_PORT) {
-        dialog.showErrorBox('9xf server is stale',
+        dialog.showErrorBox('Loopy backend is stale',
           `A server is already running at ${url}, but it does not include ${REQUIRED_MODEL}.\n` +
           'Stop that server or unset NINEXF_PORT so the desktop app can start a fresh one.');
         app.quit();

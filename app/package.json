@@ -1,13 +1,35 @@
 {
-  "name": "ninexf-app",
-  "productName": "9xf",
+  "name": "loopy-app",
+  "productName": "Loopy",
   "version": "0.6.0",
-  "description": "Desktop app for 9xf loops — autonomous coding loops on your own machine",
+  "description": "Desktop app for Loopy — local coding loops on your own machine",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "dist": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.manaskandi.loopy",
+    "productName": "Loopy",
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
   }
 }

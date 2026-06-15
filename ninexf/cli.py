@@ -67,6 +67,8 @@ def init_project(project: Path, goal: str, *, model: str | None = None,
                  delay: float | None = None, allow_network: bool = False,
                  acceptance_tests: bool = False,
                  stop_on_goal_complete: bool = False,
+                 endpoint: str | None = None,
+                 api_key_env: str | None = None,
                  force: bool = False) -> Path:
     """Create a run folder: dirs, goal, config, git, registry. The one shared
     init path — the flag CLI, the interactive UI, the web app, and arena seeds
@@ -82,11 +84,13 @@ def init_project(project: Path, goal: str, *, model: str | None = None,
     (project / GOAL_FILENAME).write_text(goal.strip() + "\n")
     write_config(project, {
         "model": model,
+        "endpoint": endpoint,
         "max_iterations": max_iterations,
         "delay_seconds": delay,
         "allow_network": allow_network or None,
         "acceptance_tests": acceptance_tests or None,
         "stop_on_goal_complete": stop_on_goal_complete or None,
+        "api_key_env": api_key_env,
     }, preset=preset)
     (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\nrun.out\n")
     if load_config(project).acceptance_tests:  # set via flag or preset

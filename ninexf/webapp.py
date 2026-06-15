@@ -24,7 +24,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
+from ninexf import (
+    CONFIG_FILENAME,
+    GOAL_FILENAME,
+    PRODUCT_DOCS_URL,
+    PRODUCT_NAME,
+    PRODUCT_RELEASES_URL,
+    PRODUCT_TAGLINE,
+    STOP_FILENAME,
+    __version__,
+)
+from ninexf.appsettings import (
+    SECRET_ENV_NAME,
+    get_secret,
+    load_app_settings,
+    patch_app_settings,
+    settings_payload,
+)
 from ninexf.apppage import APP_PAGE
 from ninexf.config import load_config
 from ninexf.dashboard import _run_status, collect_runs
@@ -92,7 +108,7 @@ def _elapsed_label(ts: str) -> str:
 
 def run_detail(d: Path) -> dict:
     if not (d / GOAL_FILENAME).exists():
-        return {"error": f"not a 9xf run: {d}"}
+        return {"error": f"not a Loopy project: {d}"}
     try:
         cfg = load_config(d)
         model, cap, delay = cfg.model, cfg.max_iterations, cfg.delay_seconds
@@ -268,7 +284,7 @@ def _git_for_bundle(d: Path, args: list[str], max_chars: int = 80_000) -> str:
 def diagnostic_bundle(d: Path) -> dict:
     """A pasteable run bundle for asking another agent/person to diagnose it."""
     if not (d / GOAL_FILENAME).exists():
-        return {"error": f"not a 9xf run: {d}"}
+        return {"error": f"not a Loopy project: {d}"}
     sections: list[tuple[str, str]] = []
 
     def add(title: str, body: str) -> None:
@@ -383,31 +399,109 @@ def browse(path_str: str) -> dict:
 
 def list_models() -> dict:
     from ninexf.interactive import _ollama_models
-    from ninexf.models import (
-        DEFAULT_MODEL,
-        GPT_OSS_20B_MODEL,
-        MISTRAL_SMALL_MODEL,
-        NVIDIA_GEMMA_MODEL,
-        NVIDIA_KIMI_MODEL,
-        NVIDIA_QWEN_NEXT_MODEL,
-        NVIDIA_QWEN_MODEL,
-        model_options,
-        ollama_model_id,
-    )
-    installed = _ollama_models()
+    from ninexf.models import api_model_options, model_options, ollama_model_id
+    settings = load_app_settings()
+    installed = _ollama_models(settings.ollama_endpoint)
     found = [ollama_model_id(m) for m in installed]
     options = model_options(installed)
     return {
         "models": options,
-        "default": found[0] if found else DEFAULT_MODEL,
-        "recommended": [
-            GPT_OSS_20B_MODEL,
-            MISTRAL_SMALL_MODEL,
-            NVIDIA_GEMMA_MODEL,
-            NVIDIA_QWEN_MODEL,
-            NVIDIA_QWEN_NEXT_MODEL,
-            NVIDIA_KIMI_MODEL,
-        ],
+        "default": settings.preferred_model if settings.preferred_mode == "ollama"
+        else (found[0] if found else settings.preferred_model),
+        "recommended": options[: min(len(options), 6)],
+        "api_models": api_model_options(),
+    }
+
+
+def onboarding_status() -> dict:
+    settings = settings_payload()
+    return {
+        "product": PRODUCT_NAME,
+        "tagline": PRODUCT_TAGLINE,
+        "version": __version__,
+        "docs_url": PRODUCT_DOCS_URL,
+        "releases_url": PRODUCT_RELEASES_URL,
+        "needs_onboarding": not settings["onboarding_complete"],
+        "settings": settings,
+    }
+
+
+def validate_ollama(payload: dict | None = None) -> dict:
+    from ninexf.interactive import _ollama_models
+
+    payload = payload or {}
+    endpoint = str(payload.get("endpoint") or load_app_settings().ollama_endpoint).strip()
+    if not endpoint:
+        return {"ok": False, "error": "an Ollama endpoint is required"}
+    models = _ollama_models(endpoint)
+    reachable = bool(models)
+    return {
+        "ok": reachable,
+        "reachable": reachable,
+        "endpoint": endpoint,
+        "models": [f"ollama/{m}" for m in models],
+        "error": "" if reachable else "Loopy could not reach Ollama there. Start Ollama and make sure the endpoint is correct.",
+    }
+
+
+def _provider_defaults(model: str) -> tuple[str, str]:
+    if model.startswith("mistral/"):
+        return "api", "MISTRAL_API_KEY"
+    if model.startswith("nvidia/"):
+        return "api", "NVIDIA_API_KEY"
+    if model.startswith("anthropic/"):
+        return "api", "ANTHROPIC_API_KEY"
+    if model.startswith("ollama/"):
+        return "ollama", SECRET_ENV_NAME
+    return "api", SECRET_ENV_NAME
+
+
+def validate_provider(payload: dict) -> dict:
+    model = str(payload.get("model", "")).strip()
+    api_key = str(payload.get("api_key", "")).strip()
+    if not model or "/" not in model:
+        return {"ok": False, "error": "pick an API model first"}
+    provider, suggested_env = _provider_defaults(model)
+    if provider != "api":
+        return {"ok": False, "error": "that model is local; choose an API model"}
+    if not api_key:
+        return {"ok": False, "error": "enter an API key"}
+    return {
+        "ok": True,
+        "provider": model.split("/", 1)[0],
+        "api_key_env": suggested_env,
+        "message": "Saved locally on this device. Loopy will use it when starting API-backed runs.",
+    }
+
+
+def save_settings(payload: dict) -> dict:
+    current = load_app_settings()
+    mode = str(payload.get("preferred_mode") or current.preferred_mode).strip() or current.preferred_mode
+    preferred_model = str(payload.get("preferred_model") or current.preferred_model).strip() or current.preferred_model
+    api_model = str(payload.get("api_model") or current.api_model).strip() or current.api_model
+    ollama_endpoint = str(payload.get("ollama_endpoint") or current.ollama_endpoint).strip() or current.ollama_endpoint
+    last_dir = str(payload.get("last_dir") or current.last_dir).strip()
+    onboarding_complete = bool(payload.get("onboarding_complete", current.onboarding_complete))
+    mascot_enabled = bool(payload.get("mascot_enabled", current.mascot_enabled))
+    _, suggested_env = _provider_defaults(api_model)
+    settings = patch_app_settings(
+        preferred_mode=mode,
+        preferred_model=preferred_model,
+        api_model=api_model,
+        ollama_endpoint=ollama_endpoint,
+        onboarding_complete=onboarding_complete,
+        last_dir=last_dir,
+        mascot_enabled=mascot_enabled,
+        api_key_env=suggested_env,
+    )
+    if "api_key" in payload:
+        from ninexf.appsettings import save_secret
+
+        save_secret(settings.api_key_env, str(payload.get("api_key", "")).strip())
+    return {
+        "ok": True,
+        "settings": settings_payload(),
+        "message": "Loopy settings saved locally on this Mac.",
     }
 
 
@@ -416,7 +510,7 @@ def list_models() -> dict:
 # Achievement ladder. Each is (key, name, blurb, glyph, predicate(stats-dict)).
 # Predicates run against the running tally below — pure thresholds, no I/O.
 _ACHIEVEMENTS = [
-    ("first_light", "First Light", "Start your first session", "✦",
+    ("first_light", "First Light", "Start your first project", "✦",
      lambda s: s["sessions"] >= 1),
     ("first_ship", "Closer", "Ship your first goal", "◉",
      lambda s: s["goals"] >= 1),
@@ -432,7 +526,7 @@ _ACHIEVEMENTS = [
      lambda s: s["distinct_models"] >= 3),
     ("nightowl", "Night Owl", "Work between midnight and 5am", "☾",
      lambda s: s["night_owl"]),
-    ("fleet", "Fleet Commander", "Keep 5 sessions on record", "⛁",
+    ("fleet", "Fleet Commander", "Keep 5 projects on record", "⛁",
      lambda s: s["sessions"] >= 5),
     ("sharp", "Sharpshooter", "80%+ pass rate over 20+ iterations", "◎",
      lambda s: s["iterations"] >= 20 and s["passed"] / max(1, s["iterations"]) >= 0.8),
@@ -630,14 +724,31 @@ def start_run(payload: dict) -> dict:
     d = Path(str(payload.get("dir", "")).strip()).expanduser()
     if not str(d) or not d.is_absolute():
         return {"error": "an absolute folder path is required"}
+    settings = load_app_settings()
     goal = (payload.get("goal") or "").strip()
+    selected_model = str(payload.get("model") or "").strip()
+    mode = str(payload.get("provider_mode") or settings.preferred_mode).strip() or "ollama"
+    if not selected_model:
+        selected_model = settings.preferred_model if mode == "ollama" else settings.api_model
+    endpoint = str(payload.get("endpoint") or "").strip()
+    if not endpoint and selected_model.startswith("ollama/"):
+        endpoint = settings.ollama_endpoint
+    api_key_env = None
+    if not selected_model.startswith("ollama/"):
+        api_key_env = settings.api_key_env or SECRET_ENV_NAME
     if not (d / CONFIG_FILENAME).exists():
         if not goal:
-            return {"error": "a goal is required for a new session"}
+            return {"error": "a goal is required for a new project"}
         from ninexf.cli import init_project
         try:
-            init_project(d, goal, model=payload.get("model") or None,
-                         preset=payload.get("preset") or None)
+            init_project(
+                d,
+                goal,
+                model=selected_model or None,
+                preset=payload.get("preset") or None,
+                endpoint=endpoint or None,
+                api_key_env=api_key_env,
+            )
         except (FileExistsError, OSError, ValueError) as e:
             return {"error": str(e)}
     if is_running(d):
@@ -659,6 +770,13 @@ def start_run(payload: dict) -> dict:
     log = (d / "run.out").open("ab")
     try:
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        if settings.last_dir != str(d):
+            patch_app_settings(last_dir=str(d))
+        if not selected_model.startswith("ollama/"):
+            api_key = get_secret(settings.api_key_env or SECRET_ENV_NAME)
+            if not api_key:
+                return {"error": "Loopy has no saved API key for that provider yet"}
+            env[settings.api_key_env or SECRET_ENV_NAME] = api_key
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True,
                                 env=env)
@@ -673,8 +791,8 @@ def start_run(payload: dict) -> dict:
 def stop_run(payload: dict) -> dict:
     d = Path(str(payload.get("dir", "")).strip()).expanduser()
     if not (d / GOAL_FILENAME).exists():
-        return {"error": f"not a 9xf run: {d}"}
-    (d / STOP_FILENAME).write_text("stop requested via 9xf app\n")
+        return {"error": f"not a Loopy project: {d}"}
+    (d / STOP_FILENAME).write_text("stop requested via Loopy\n")
     return {"ok": True}
 
 
@@ -712,6 +830,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json(browse(q.get("path", "")))
             elif url.path == "/api/models":
                 self._json(list_models())
+            elif url.path == "/api/settings":
+                self._json(settings_payload())
+            elif url.path == "/api/onboarding":
+                self._json(onboarding_status())
+            elif url.path == "/api/validate/ollama":
+                self._json(validate_ollama(q))
             else:
                 self._json({"error": "not found"}, 404)
         except Exception as e:  # never let one bad request kill the app
@@ -726,6 +850,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json(start_run(payload))
             elif url.path == "/api/stop":
                 self._json(stop_run(payload))
+            elif url.path == "/api/settings":
+                self._json(save_settings(payload))
+            elif url.path == "/api/validate/provider":
+                self._json(validate_provider(payload))
+            elif url.path == "/api/validate/ollama":
+                self._json(validate_ollama(payload))
             else:
                 self._json({"error": "not found"}, 404)
         except Exception as e:

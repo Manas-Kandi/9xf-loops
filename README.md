@@ -1,4 +1,9 @@
-# 9xf loops v1.0
+# 9xf loops / Loopy v1.0
+
+Loopy is the publishable desktop face of the `9xf` engine: a local-first app
+for autonomous coding loops with onboarding, BYO API keys, and Ollama-based
+local models. The CLI and on-disk run format remain `9xf` for compatibility in
+v1, while the user-facing app and release surfaces are branded as **Loopy**.
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
