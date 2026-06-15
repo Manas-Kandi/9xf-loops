@@ -18,14 +18,14 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.apppage import APP_PAGE
-from ninexf.apppage_cool import APP_PAGE_COOL
 from ninexf.config import load_config
 from ninexf.dashboard import _run_status, collect_runs
 from ninexf.looplog import read_entries
@@ -411,6 +411,182 @@ def list_models() -> dict:
     }
 
 
+# -- API: stats (the gamified overview) ---------------------------------------------
+
+# Achievement ladder. Each is (key, name, blurb, glyph, predicate(stats-dict)).
+# Predicates run against the running tally below — pure thresholds, no I/O.
+_ACHIEVEMENTS = [
+    ("first_light", "First Light", "Start your first session", "✦",
+     lambda s: s["sessions"] >= 1),
+    ("first_ship", "Closer", "Ship your first goal", "◉",
+     lambda s: s["goals"] >= 1),
+    ("centurion", "Centurion", "100 total iterations", "⬡",
+     lambda s: s["iterations"] >= 100),
+    ("marathon", "Marathoner", "A single run past 50 iterations", "↻",
+     lambda s: s["max_run_iters"] >= 50),
+    ("streak3", "Streak Keeper", "Code 3 days in a row", "▲",
+     lambda s: s["longest_streak"] >= 3),
+    ("streak7", "Week Warrior", "A 7-day streak", "★",
+     lambda s: s["longest_streak"] >= 7),
+    ("polyglot", "Polyglot", "Run 3 different models", "⬢",
+     lambda s: s["distinct_models"] >= 3),
+    ("nightowl", "Night Owl", "Work between midnight and 5am", "☾",
+     lambda s: s["night_owl"]),
+    ("fleet", "Fleet Commander", "Keep 5 sessions on record", "⛁",
+     lambda s: s["sessions"] >= 5),
+    ("sharp", "Sharpshooter", "80%+ pass rate over 20+ iterations", "◎",
+     lambda s: s["iterations"] >= 20 and s["passed"] / max(1, s["iterations"]) >= 0.8),
+]
+
+# XP weights — what each kind of progress is worth. Tuned so a productive
+# overnight run is a satisfying chunk of a level without trivializing goals.
+_XP_ITER, _XP_PASS, _XP_TASK, _XP_GOAL = 4, 6, 12, 120
+_LEVEL_BASE = 240  # xp for level 2; curve is quadratic (see _level_for)
+
+
+def _level_for(xp: int) -> dict:
+    """Quadratic level curve: cumulative xp for level L is (L-1)^2 * base."""
+    level = int((xp / _LEVEL_BASE) ** 0.5) + 1
+    floor_xp = (level - 1) ** 2 * _LEVEL_BASE
+    next_xp = level ** 2 * _LEVEL_BASE
+    span = max(1, next_xp - floor_xp)
+    return {
+        "level": level,
+        "xp": xp,
+        "into_level": xp - floor_xp,
+        "level_span": span,
+        "to_next": next_xp - xp,
+        "pct": round(100 * (xp - floor_xp) / span),
+    }
+
+
+def _stat_dt(ts) -> datetime | None:
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone()  # local time — streaks/heatmap read in the user's day
+
+
+def _streaks(active_days: set) -> tuple[int, int]:
+    """(current, longest) run of consecutive active calendar days."""
+    if not active_days:
+        return 0, 0
+    days = sorted(active_days)
+    longest = run = 1
+    for prev, cur in zip(days, days[1:]):
+        run = run + 1 if (cur - prev).days == 1 else 1
+        longest = max(longest, run)
+    today = datetime.now().astimezone().date()
+    current = 0
+    cursor = today
+    if today not in active_days and (today - timedelta(days=1)) in active_days:
+        cursor = today - timedelta(days=1)  # today not started yet — yesterday still counts
+    while cursor in active_days:
+        current += 1
+        cursor -= timedelta(days=1)
+    return current, longest
+
+
+def collect_stats() -> dict:
+    """Aggregate every registered run into the gamified overview payload.
+
+    Everything here is derived from real run data (the loop logs, task lists,
+    and configs) — no invented numbers. The client renders cards, a heatmap,
+    an XP bar, and the achievement shelf from this single document.
+    """
+    runs = registered_runs()
+    iterations = passed = failed = tasks_done = goals = 0
+    max_run_iters = 0
+    models: Counter = Counter()
+    day_counts: Counter = Counter()   # date -> iteration count
+    hour_counts: Counter = Counter()  # 0..23 -> iteration count
+    active_days: set = set()
+
+    for d in runs:
+        try:
+            models[load_config(d).model] += 1
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+        entries = read_entries(d)
+        if any(e.get("event") == "finished" for e in entries):
+            goals += 1
+        try:
+            done, _ = load_tasks(d).counts()
+            tasks_done += done
+        except OSError:
+            pass
+        run_iters = 0
+        for e in entries:
+            if e.get("event") != "iteration":
+                continue
+            iterations += 1
+            run_iters += 1
+            if e.get("validation_passed"):
+                passed += 1
+            else:
+                failed += 1
+            dt = _stat_dt(e.get("timestamp"))
+            if dt:
+                day = dt.date()
+                active_days.add(day)
+                day_counts[day] += 1
+                hour_counts[dt.hour] += 1
+        max_run_iters = max(max_run_iters, run_iters)
+
+    current_streak, longest_streak = _streaks(active_days)
+    peak_hour = hour_counts.most_common(1)[0][0] if hour_counts else None
+    favorite_model = models.most_common(1)[0][0] if models else "—"
+
+    # 20-week activity heatmap, oldest→newest, padded to whole weeks so the
+    # client can lay it out as 7 rows (Sun..Sat) without date math.
+    today = datetime.now().astimezone().date()
+    span_days = 140
+    start = today - timedelta(days=span_days - 1)
+    start -= timedelta(days=(start.weekday() + 1) % 7)  # back up to a Sunday
+    heatmap = []
+    cur = start
+    while cur <= today:
+        c = day_counts.get(cur, 0)
+        lvl = 0 if c == 0 else 1 if c <= 2 else 2 if c <= 5 else 3 if c <= 9 else 4
+        heatmap.append({"date": cur.isoformat(), "count": c, "level": lvl})
+        cur += timedelta(days=1)
+
+    tally = {
+        "sessions": len(runs),
+        "iterations": iterations,
+        "passed": passed,
+        "failed": failed,
+        "tasks_done": tasks_done,
+        "goals": goals,
+        "max_run_iters": max_run_iters,
+        "distinct_models": len(models),
+        "longest_streak": longest_streak,
+        "night_owl": any(h < 5 for h in hour_counts),
+    }
+    xp = (iterations * _XP_ITER + passed * _XP_PASS
+          + tasks_done * _XP_TASK + goals * _XP_GOAL)
+    achievements = [
+        {"key": k, "name": n, "blurb": b, "glyph": g, "unlocked": pred(tally)}
+        for (k, n, b, g, pred) in _ACHIEVEMENTS
+    ]
+
+    return {
+        **tally,
+        "active_days": len(active_days),
+        "current_streak": current_streak,
+        "pass_rate": round(100 * passed / iterations) if iterations else 0,
+        "peak_hour": peak_hour,
+        "favorite_model": favorite_model,
+        "heatmap": heatmap,
+        "progress": _level_for(xp),
+        "achievements": achievements,
+        "unlocked_count": sum(1 for a in achievements if a["unlocked"]),
+    }
+
+
 # -- API: control -----------------------------------------------------------------
 
 def _pid_alive(pid: int) -> bool:
@@ -520,10 +696,11 @@ class AppHandler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path in ("/", "/index.html"):
-                page = APP_PAGE_COOL if q.get("mode") == "cool" else APP_PAGE
-                self._send(page.encode(), "text/html; charset=utf-8")
+                self._send(APP_PAGE.encode(), "text/html; charset=utf-8")
             elif url.path == "/api/runs":
                 self._json(collect_runs())
+            elif url.path == "/api/stats":
+                self._json(collect_stats())
             elif url.path == "/api/run":
                 self._json(run_detail(Path(q.get("dir", "")).expanduser()))
             elif url.path == "/api/diff":

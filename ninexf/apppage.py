@@ -1,15 +1,19 @@
-"""The `9xf app` page — design direction: quiet, warm, minimal.
+"""The `9xf app` page — design direction: a flat, pastel, gently goofy workshop.
 
-A calm dark workspace for a machine that works while you sleep. Warm near-black
-neutrals with a single muted terracotta accent (the Claude palette), system
-sans-serif for prose, monospace reserved for numbers/hashes/diffs, soft rounded
-surfaces instead of rules and boxes, and one signature element — the PULSE
-strip, a seismograph of every iteration (green tick up = validated, red drop =
-failed, blinking cursor = alive right now).
+A soft pale pink/purple workspace for a machine that codes while you sleep. The
+home screen is a compact gamified overview — level + XP, a streak heatmap,
+achievement tiles, and an interactive pixel mascot ("Looper") who naps when
+idle, tinkers while a run is live, and celebrates when a goal ships. Pick a
+session and the view flips to the working transcript with a live code-diff
+register.
+
+Flat by design: pastel fills, hairline borders, no shadows, no glows, no
+gradients. System sans for prose, monospace reserved for numbers/hashes/diffs.
 
 Constraints honored: one self-contained file, no external fonts/assets (fully
-offline), prefers-reduced-motion respected, :focus-visible styles, and color is
-never the only signal (every state also carries a glyph or word).
+offline — the mascot is hand-built pixel art in SVG), prefers-reduced-motion
+respected, :focus-visible styles, and color is never the only signal (every
+state also carries a glyph or word).
 """
 
 APP_PAGE = r"""<!doctype html>
@@ -18,14 +22,30 @@ APP_PAGE = r"""<!doctype html>
 <title>9xf</title>
 <style>
 :root{
-  --ink:#0c0b0a; --panel:#141312; --panel2:#1b1a18; --well:#070605;
-  --line:#221f1d; --line2:#322e2b;
-  --amber:#b06a4f; --amber2:#8f553e; --amber-dim:#4a2e22;
-  --green:#7d9a78; --red:#b56a5f; --blue:#8499ad;
-  --cool:#6f7a85; --cool-bg:#121417;
-  --txt:#e0ddd7; --dim:#928f89; --faint:#65625c;
+  /* flat pale pink/purple pastels — light surfaces, hairline borders */
+  --ink:#e1dae9; --panel:#eee8f4; --panel2:#ded6ec; --well:#d5cce4;
+  --line:#cbc0dd; --line2:#b9abd0;
+  --accent:#9576cf; --accent2:#7a5fb0; --accent-soft:#ece1f9; --accent-bright:#b6a1e4;
+  --pink:#d99fcb;
+  --green:#5fa07f; --red:#c96d86; --blue:#7e94bf;
+  --txt:#3b3348; --dim:#867b96; --faint:#a99fb6;
+  --on-accent:#ffffff; --scrim:rgba(59,51,72,.30);
+  --hm1:#e0d2f3; --hm2:#c7aee8; --hm3:#a98fd8; --hm4:#8a6cc4;
+  --good-bg:#e2f0e9; --bad-bg:#f7e2e8; --err-bg:#f9e8ec;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+:root[data-theme="dark"]{
+  /* same pastels, dark plum surfaces — still flat, no glows */
+  --ink:#0a0810; --panel:#121019; --panel2:#1b1724; --well:#0d0a14;
+  --line:#201b2c; --line2:#2f2840;
+  --accent:#b6a1e4; --accent2:#cbb9f2; --accent-soft:#2d2747; --accent-bright:#cbbaf0;
+  --pink:#e0a6cf;
+  --green:#7cc49e; --red:#e08aa0; --blue:#9db4dd;
+  --txt:#e8e3f1; --dim:#a79db9; --faint:#766d86;
+  --on-accent:#1b1726; --scrim:rgba(0,0,0,.55);
+  --hm1:#332b50; --hm2:#4a3d77; --hm3:#7a62b8; --hm4:#b6a1e4;
+  --good-bg:rgba(124,196,158,.16); --bad-bg:rgba(224,138,160,.16); --err-bg:rgba(224,138,160,.14);
 }
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
@@ -35,71 +55,89 @@ body{
   font-variant-numeric:tabular-nums;
   -webkit-font-smoothing:antialiased;
 }
-::selection{background:var(--amber);color:#fff}
-::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+::selection{background:var(--accent-soft);color:var(--txt)}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--line2)}
 ::-webkit-scrollbar-track{background:transparent}
-:focus-visible{outline:1px solid var(--amber);outline-offset:2px}
+::-webkit-scrollbar-corner{background:transparent}
+:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
 
 /* ---------- primitives ---------- */
 .lbl{font-size:11px;color:var(--faint)}
 button{
   font:inherit;font-size:12.5px;cursor:pointer;color:var(--txt);
-  background:transparent;border:1px solid var(--line2);border-radius:8px;
+  background:var(--panel);border:1px solid var(--line2);border-radius:8px;
   padding:6px 14px;transition:background .12s,border-color .12s,color .12s;
 }
-button:hover{background:var(--panel2);border-color:var(--faint)}
+button:hover{background:var(--panel2);border-color:var(--accent)}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.45;cursor:default;transform:none}
-button.primary{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
-button.primary:hover{background:#bd7359;border-color:#bd7359;color:#fff}
-button.danger:hover{border-color:var(--red);color:var(--red);background:transparent}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+button.primary:hover{background:var(--accent2);border-color:var(--accent2);color:var(--on-accent)}
+button.danger:hover{border-color:var(--red);color:var(--red);background:var(--panel)}
 input,textarea,select{
   font:inherit;font-size:13px;background:var(--well);color:var(--txt);
   border:1px solid var(--line2);border-radius:8px;padding:8px 12px;width:100%;
 }
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber2)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
 textarea{resize:vertical;min-height:72px}
-.frame{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.frame{position:relative;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
 
 @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
 .cursor{animation:blink 1.1s steps(1) infinite}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+/* view switching: home (overview) vs run (transcript) */
+#top,#panes{display:none}
+body.run #top,body.run #panes{display:flex}
+#home{display:none}
+body.home #home{display:flex}
+
 /* ---------- sidebar ---------- */
-#side{width:272px;min-width:272px;background:var(--well);
+#side{width:256px;min-width:256px;background:var(--well);
   display:flex;flex-direction:column;transition:width .16s ease,min-width .16s ease}
 #side.collapsed{width:0;min-width:0;overflow:hidden}
-#brand{padding:20px 18px 8px}
-#brand .word{font-size:16px;font-weight:600;color:var(--txt)}
-#brand .word b{color:var(--amber)}
-#brand .tag{font-size:11px;color:var(--faint);margin-top:1px}
-#newBtn{margin:14px 14px 6px;display:block;width:calc(100% - 28px)}
-.raillabel{padding:12px 18px 4px;font-size:11px;color:var(--faint)}
-#runlist{flex:1;overflow-y:auto;padding:0 8px}
-.runitem{display:flex;gap:10px;align-items:flex-start;padding:8px 11px;cursor:pointer;
-  border-radius:10px;margin-bottom:1px;position:relative;
+#brand{padding:16px 16px 6px;cursor:pointer;border-radius:10px;margin:6px 8px 0;
   transition:background .14s ease}
-.runitem:hover{background:var(--panel)}
-.runitem.active{background:var(--panel2)}
+#brand:hover{background:var(--panel2)}
+#brand .word{font-size:16px;font-weight:600;color:var(--txt)}
+#brand .word b{color:var(--accent)}
+#brand .tag{font-size:11px;color:var(--faint);margin-top:1px}
+#newBtn{margin:12px 14px 4px;display:block;width:calc(100% - 28px)}
+.raillabel{padding:12px 18px 4px;font-size:11px;color:var(--faint);display:flex;
+  justify-content:space-between;align-items:center}
+.raillabel .lvchip{font:600 10px var(--mono);color:var(--accent2);
+  background:var(--accent-soft);border-radius:99px;padding:1px 8px}
+#runlist{flex:1;overflow-y:auto;padding:0 8px}
+.runitem{display:flex;gap:10px;align-items:flex-start;padding:7px 11px;cursor:pointer;
+  border-radius:7px;margin-bottom:1px;position:relative;
+  transition:background .14s ease}
+.runitem:hover{background:var(--panel2)}
+.runitem.active{background:var(--accent-soft)}
 .runitem.active::before{content:"";position:absolute;left:3px;top:9px;bottom:9px;width:2px;
-  border-radius:2px;background:var(--amber)}
+  border-radius:2px;background:var(--accent)}
 .led{width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--faint);flex:none}
 .led.running{background:var(--green)}
-.led.finished{background:var(--amber)}
+.led.finished{background:var(--accent)}
 .led.failed{background:var(--red)}
-.led.stale{background:var(--amber2)}
-.runitem .g{font-size:13px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;max-width:206px}
+.led.stale{background:var(--accent-bright)}
+.runitem .g{font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:196px}
 .runitem .s{font-size:11px;color:var(--faint);margin-top:1px}
-#railfoot{padding:10px 18px;display:flex;
+#railfoot{padding:9px 18px;display:flex;align-items:center;
   justify-content:space-between;font:10.5px var(--mono);color:var(--faint)}
 #clock{color:var(--dim)}
+#railfoot .rf-right{display:flex;align-items:center;gap:8px}
+#themeBtn{border:0;background:transparent;color:var(--faint);cursor:pointer;
+  font-size:13px;line-height:1;padding:3px 5px;border-radius:6px;transition:color .12s,background .12s}
+#themeBtn:hover{color:var(--accent);background:var(--panel2)}
 
 /* ---------- header: readouts + pulse ---------- */
-#main{flex:1;display:flex;flex-direction:column;min-width:0}
-#top{border-bottom:1px solid var(--line)}
-#readouts{display:flex;align-items:center;gap:28px;padding:14px 22px 10px}
+#main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+#top{border-bottom:1px solid var(--line);flex-direction:column}
+#readouts{display:flex;align-items:center;gap:24px;padding:12px 22px 9px}
 .cell{min-width:0}
 .cell .val{margin-top:1px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cell.goal{flex:1}
@@ -109,41 +147,152 @@ textarea{resize:vertical;min-height:72px}
 .segs{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap;max-width:220px}
 .seg{width:8px;height:8px;border-radius:2px;background:var(--line2)}
 .seg.done{background:var(--green)}
-.seg.cur{background:var(--amber)}
-.seg.def{background:var(--red);opacity:.55}
+.seg.cur{background:var(--accent)}
+.seg.def{background:var(--red);opacity:.7}
 .statusword{font-size:13px}
 .statusword.running{color:var(--green)}
-.statusword.finished{color:var(--amber)}
+.statusword.finished{color:var(--accent)}
 .statusword.failed{color:var(--red)}
-.statusword.stale{color:var(--amber2)}
+.statusword.stale{color:var(--accent2)}
 .statusword.stopped,.statusword.never{color:var(--dim)}
 .cell.actions{display:flex;align-items:center;gap:8px}
-#pulsewrap{padding:0 22px 10px}
+#pulsewrap{padding:0 22px 9px}
 #pulsewrap .lbl{display:block;margin-bottom:2px}
 #pulse{display:block;width:100%}
+/* pulse strokes via CSS so they follow the theme (var() can't live in SVG attrs) */
+#pulse .pl-base{stroke:var(--line)}
+#pulse .pl-pass{stroke:var(--green)}
+#pulse .pl-fail{stroke:var(--red)}
+#pulse .pl-cur{fill:var(--accent)}
+
+/* ---------- overview / home (flat, mostly boxless) ---------- */
+#home{flex:1;overflow-y:auto;flex-direction:column;align-items:center;padding:30px 32px 90px}
+.hwrap{width:100%;max-width:700px}
+
+/* header: greeting (left) + level cluster (right), no box */
+.hhead{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.hgreet{display:flex;align-items:center;gap:9px;font-size:18px;font-weight:600;color:var(--txt)}
+.hgreet .spark{color:var(--accent)}
+.hsub{color:var(--dim);font-size:12.5px;margin-top:3px}
+.lvcluster{display:flex;align-items:center;gap:10px;flex:none}
+.lvbadge{flex:none;width:38px;height:38px;border-radius:8px;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;
+  background:var(--accent);color:var(--on-accent)}
+.lvbadge .n{font:700 16px/1 var(--mono)}
+.lvbadge .k{font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;opacity:.9;margin-top:1px}
+.lvinfo{min-width:148px}
+.lvtop{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:5px}
+.lvtop .t{font-size:12.5px;font-weight:600;color:var(--txt)}
+.lvtop .x{font:10.5px var(--mono);color:var(--faint)}
+.xpbar{height:6px;border-radius:3px;background:var(--well);overflow:hidden}
+.xpfill{height:100%;border-radius:3px;background:var(--accent);
+  width:0;transition:width .6s cubic-bezier(.4,0,.2,1)}
+
+/* thin dividers + uppercase section labels give structure without boxes */
+.hrule{height:1px;background:var(--line);margin:20px 0}
+.hsec{font-size:10.5px;color:var(--faint);margin-bottom:12px;letter-spacing:.05em;
+  text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+.hsec .tag{text-transform:none;letter-spacing:0;font-size:11px}
+
+/* flat stat strip — no boxes, just numbers */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.stat .sk{font-size:10.5px;color:var(--faint)}
+.stat .sv{font:600 21px/1.15 var(--sans);color:var(--txt);margin-top:3px}
+.stat .sv small{font-size:11px;color:var(--dim);font-weight:400}
+.stat .sv .em{color:var(--accent)}
+.statnote{margin-top:11px;font-size:11px;color:var(--faint)}
+
+/* heatmap — boxless, legend sits beside the grid so space reads even */
+.heatrow{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.heatscroll{overflow-x:auto;padding-bottom:2px}
+.heat{display:grid;grid-template-rows:repeat(7,11px);grid-auto-flow:column;
+  grid-auto-columns:11px;gap:3px;width:max-content}
+.hc{width:11px;height:11px;border-radius:2px;background:var(--line)}
+.hc.l1{background:var(--hm1)}
+.hc.l2{background:var(--hm2)}
+.hc.l3{background:var(--hm3)}
+.hc.l4{background:var(--hm4)}
+.heatleg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--faint)}
+.heatleg .hc{width:9px;height:9px}
+
+/* achievements — flat circles, name on hover */
+.badges{display:flex;flex-wrap:wrap;gap:9px}
+.badge{cursor:default;transition:transform .14s}
+.badge.unlk:hover{transform:translateY(-2px)}
+.badge .g{font-size:16px;line-height:1;color:var(--on-accent);
+  display:inline-flex;width:36px;height:36px;align-items:center;justify-content:center;
+  border-radius:50%;background:var(--accent)}
+.badge.lock{opacity:.5}
+.badge.lock .g{color:var(--faint);background:var(--panel2)}
+
+/* ---------- pixel mascot ---------- */
+#mascot{position:fixed;right:24px;bottom:20px;z-index:40;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;user-select:none;
+  -webkit-user-select:none}
+#mascot svg{width:80px;height:80px;image-rendering:pixelated}
+#mascot svg .m-tip{fill:var(--mascot-tip)}   /* antenna tip — themed via CSS */
+/* play mode: JS drives transform; physics perches Looper on transcript cards */
+#mascot.play{left:0;top:0;right:auto;bottom:auto;animation:none;
+  transform-origin:50% 100%;will-change:transform;z-index:12}
+#mascot.play svg{width:44px;height:44px}
+#mascot.idle{animation:bob 3.2s ease-in-out infinite}
+#mascot.working{animation:bob 1.3s ease-in-out infinite}
+#mascot.happy{animation:hop .5s ease-in-out infinite}
+#mascot.poke{animation:squish .32s ease}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes hop{0%,100%{transform:translateY(0)}40%{transform:translateY(-14px)}70%{transform:translateY(-3px)}}
+@keyframes squish{0%{transform:scale(1,1)}40%{transform:scale(1.12,.86)}100%{transform:scale(1,1)}}
+#bubble{position:absolute;bottom:86px;right:0;max-width:190px;white-space:normal;
+  background:var(--panel);border:1px solid var(--line2);color:var(--txt);
+  font-size:12px;line-height:1.45;padding:7px 11px;border-radius:11px;
+  opacity:0;transform:translateY(6px) scale(.96);
+  transition:opacity .18s ease,transform .18s ease;pointer-events:none}
+#bubble.show{opacity:1;transform:translateY(0) scale(1)}
+#bubble::after{content:"";position:absolute;bottom:-6px;right:30px;width:10px;height:10px;
+  background:var(--panel);border-right:1px solid var(--line2);border-bottom:1px solid var(--line2);
+  transform:rotate(45deg)}
+#zzz{position:absolute;top:-2px;right:4px;font:600 13px var(--mono);color:var(--faint);
+  opacity:0}
+#mascot.sleep #zzz{animation:floatz 2.6s ease-in-out infinite}
+@keyframes floatz{0%{opacity:0;transform:translateY(4px)}30%{opacity:.8}100%{opacity:0;transform:translateY(-12px)}}
+.xppop{position:absolute;top:6px;right:30px;font:700 13px var(--mono);color:var(--accent);
+  pointer-events:none;animation:xprise .9s ease forwards}
+@keyframes xprise{0%{opacity:0;transform:translateY(0)}20%{opacity:1}100%{opacity:0;transform:translateY(-26px)}}
+/* little thought emotes (?, ♥, …) Looper puffs out while reacting */
+.emote{position:absolute;bottom:50px;left:50%;font:700 15px var(--mono);color:var(--accent);
+  pointer-events:none;animation:emoteRise 1.1s ease forwards}
+@keyframes emoteRise{
+  0%{opacity:0;transform:translate(-50%,6px) scale(.5)}
+  25%{opacity:1;transform:translate(-50%,-7px) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-24px) scale(1)}}
 
 /* ---------- panes ---------- */
-#panes{flex:1;display:flex;min-height:0}
+#panes{flex:1;min-height:0}
+body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register collapsed */
 .panehead{padding:12px 22px 4px;font-size:11px;color:var(--faint);display:flex;
   justify-content:space-between;align-items:center;gap:8px}
 #chatwrap{flex:1;display:flex;flex-direction:column;min-width:280px}
-.gutter{flex:none;width:7px;cursor:col-resize;background:transparent;
-  border-left:1px solid var(--line);transition:border-color .12s}
-.gutter:hover,.gutter.drag{border-left-color:var(--amber2)}
+.gutter{flex:none;width:6px;cursor:col-resize;background:transparent;transition:background .12s}
+.gutter:hover,.gutter.drag{background:var(--line2)}
 /* icon button: quiet, square, for chrome controls (collapse, etc.) */
 .iconbtn{border:0;background:transparent;color:var(--dim);padding:5px 7px;
   border-radius:7px;font-size:14px;line-height:1}
 .iconbtn:hover{background:var(--panel2);color:var(--txt)}
 #chat{flex:1;overflow-y:auto;padding:12px 22px 18px;scroll-behavior:smooth}
+.miniToggle{font:inherit;font-size:10.5px;color:var(--faint);background:transparent;
+  border:1px solid var(--line);border-radius:99px;padding:2px 9px;cursor:pointer;
+  transition:color .12s,border-color .12s,background .12s}
+.miniToggle:hover{color:var(--dim);border-color:var(--line2)}
+.miniToggle.on{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
 #statusbar{display:none;border-top:1px solid var(--line);
   padding:9px 22px;font-size:12.5px;color:var(--dim);align-items:center;gap:10px}
-#statusbar .cursor{color:var(--amber);font-weight:700}
+#statusbar .cursor{color:var(--accent);font-weight:700}
 #statusbar b{color:var(--txt)}
 
 /* ---------- transcript records: collapsible cards ---------- */
-.rec{background:var(--panel);border-radius:10px;margin:0 auto 6px;max-width:740px;
-  overflow:hidden;transition:box-shadow .18s ease}
-.rec.selected{box-shadow:0 0 0 1px var(--amber2)}
+.rec{background:var(--panel);border:1px solid transparent;border-radius:8px;margin:0 auto 6px;
+  max-width:740px;overflow:hidden;transition:border-color .18s ease}
+.rec.selected{border-color:var(--accent-bright)}
 .rechead{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;
   font-size:11.5px;color:var(--dim);user-select:none;transition:background .14s ease}
 .rechead:hover{background:var(--panel2)}
@@ -155,9 +304,9 @@ textarea{resize:vertical;min-height:72px}
 .rectitle{flex:1;min-width:0;color:var(--txt);font-size:12.5px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .flag{flex:none;padding:1px 8px;border-radius:99px;background:var(--panel2);color:var(--dim);font-size:10.5px}
-.flag.warn{background:rgba(176,106,79,.16);color:var(--amber)}
-.flag.bad{background:rgba(181,106,95,.15);color:var(--red)}
-.flag.good{background:rgba(125,154,120,.15);color:var(--green)}
+.flag.warn{background:var(--accent-soft);color:var(--accent2)}
+.flag.bad{background:var(--bad-bg);color:var(--red)}
+.flag.good{background:var(--good-bg);color:var(--green)}
 .verdict{margin-left:auto;font-weight:600;font-size:11.5px}
 .verdict.ok{color:var(--green)}
 .verdict.bad{color:var(--red)}
@@ -175,74 +324,74 @@ textarea{resize:vertical;min-height:72px}
 .file{font:11px var(--mono);background:var(--panel2);border-radius:6px;padding:2px 8px;color:var(--blue)}
 .errblock{margin:8px 0 0 44px;border-radius:8px;padding:7px 10px;
   font:11.5px/1.5 var(--mono);color:var(--red);word-break:break-word;
-  background:rgba(181,106,95,.09)}
+  background:var(--err-bg)}
 .streampreview{margin:6px 0 0 44px;border-radius:8px;padding:8px 11px;max-height:120px;overflow:hidden;
   font:11.5px/1.55 var(--mono);color:var(--dim);white-space:pre-wrap;word-break:break-word;
   background:var(--panel2);border:1px solid var(--line)}
-.streampreview .cursor{color:var(--amber);font-weight:700}
+.streampreview .cursor{color:var(--accent);font-weight:700}
 .recmeta{display:flex;gap:14px;padding:10px 0 0 44px;font-size:11px;color:var(--faint)}
-.recmeta .hash{font-family:var(--mono);color:var(--amber2);cursor:pointer}
-.recmeta .hash:hover{color:var(--amber);text-decoration:underline}
+.recmeta .hash{font-family:var(--mono);color:var(--accent2);cursor:pointer}
+.recmeta .hash:hover{color:var(--accent);text-decoration:underline}
 
-/* activity / process stream — cooler, quieter, collapsible as one block */
-.actgroup{max-width:740px;margin:0 auto 6px;border-radius:10px;
-  background:var(--cool-bg);border:1px solid transparent;transition:border-color .14s}
-.actgroup:hover{border-color:var(--line)}
+/* activity / process stream — quieter, collapsible as one block */
+.actgroup{max-width:740px;margin:0 auto 6px;border-radius:8px;
+  background:var(--well);transition:background .14s}
+.actgroup:hover{background:var(--panel2)}
 .acthead{display:flex;align-items:center;gap:9px;padding:7px 14px;cursor:pointer;
-  font-size:11px;color:var(--cool);user-select:none}
-.acthead .chev{color:var(--cool);opacity:.7}
-.actcount{flex:none;font:600 10.5px var(--mono);color:var(--cool)}
+  font-size:11px;color:var(--dim);user-select:none}
+.acthead .chev{color:var(--dim);opacity:.7}
+.actcount{flex:none;font:600 10.5px var(--mono);color:var(--dim)}
 .actpath{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   color:var(--faint)}
 .actlast{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  color:var(--cool);opacity:.85}
+  color:var(--dim);opacity:.85}
 .actbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.4,0,.2,1)}
 .actgroup.open .actbody{grid-template-rows:1fr}
 .abi{overflow:hidden;min-height:0}
 .actgroup.open .abi{padding:0 14px 8px 33px}
 .actrow{display:flex;gap:10px;padding-top:5px;font-size:11.5px;color:var(--faint)}
-.actrow .k{flex:none;width:64px;color:var(--cool);font-weight:500}
+.actrow .k{flex:none;width:64px;color:var(--dim);font-weight:500}
 
 /* milestones */
 .evt{display:flex;align-items:center;justify-content:center;gap:8px;max-width:740px;
   margin:8px auto;color:var(--faint);font-size:11.5px;text-align:center}
 .evt b{color:var(--dim)}
-.evt.finish{color:var(--amber)}
-.evt.finish b{color:var(--amber)}
+.evt.finish{color:var(--accent)}
+.evt.finish b{color:var(--accent)}
 
-/* empty state */
+/* empty state (within a run with no entries yet) */
 .empty{margin:auto;text-align:center;padding:60px 30px;max-width:480px}
 .empty h2{font-size:21px;font-weight:600;margin-bottom:12px;color:var(--txt);line-height:1.3}
-.empty h2 b{color:var(--amber)}
+.empty h2 b{color:var(--accent)}
 .empty p{color:var(--dim);font-size:13.5px;margin-bottom:26px}
 
 /* ---------- diff register ---------- */
 #diffpane{flex:none;width:46%;min-width:240px;display:flex;flex-direction:column;
-  min-height:0;background:var(--well)}
-#diffTitle .hash{font-family:var(--mono);color:var(--amber)}
+  min-height:0;background:var(--well);border-left:1px solid var(--line)}
+#diffTitle .hash{font-family:var(--mono);color:var(--accent)}
 #diff{flex:1;overflow:auto;padding:10px 22px 16px;font:11.5px/1.6 var(--mono);
   white-space:pre;color:var(--dim)}
 #diff.swap{animation:fadein .2s ease}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 #diff .add{color:var(--green)}
 #diff .del{color:var(--red)}
-#diff .hunk{color:var(--amber2)}
+#diff .hunk{color:var(--accent2)}
 #diff .file{font:inherit;background:transparent;border-radius:0;padding:0;
   color:var(--blue);font-weight:700}
 #diff .ctx{color:var(--faint)}
 
 /* ---------- modal ---------- */
-#overlay,#copyOverlay{position:fixed;inset:0;background:rgba(2,3,5,.7);display:none;
-  align-items:center;justify-content:center;z-index:10}
+#overlay,#copyOverlay{position:fixed;inset:0;background:var(--scrim);display:none;
+  align-items:center;justify-content:center;z-index:50}
 #overlay.show,#copyOverlay.show{display:flex}
-.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:26px;border-radius:14px}
+.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:26px;border-radius:10px}
 .modal h2{font-size:16px;font-weight:600;color:var(--txt);margin-bottom:18px}
 .field{margin-bottom:16px}
 .field .lbl{display:block;margin-bottom:6px}
 .row{display:flex;gap:10px}.row>*{flex:1}
 .seg-switch{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
-.seg-switch button{flex:1;border:0;border-radius:0;background:transparent}
-.seg-switch button.on{background:var(--amber);color:#fff;font-weight:600}
+.seg-switch button{flex:1;border:0;border-radius:0;background:var(--panel)}
+.seg-switch button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
 .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 /* in-app folder browser (plain-browser fallback) — a mini file dialog */
 #browser{border:1px solid var(--line2);border-radius:10px;margin-top:8px;background:var(--well);
@@ -257,7 +406,7 @@ textarea{resize:vertical;min-height:72px}
 #browser .bi.muted:hover{background:transparent}
 #browser .bi .ic{flex:none;width:12px;color:var(--faint);text-align:center}
 #browser .bi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#browser .bi .tag{flex:none;color:var(--amber2);font-size:10px;border:1px solid var(--amber-dim);
+#browser .bi .tag{flex:none;color:var(--accent2);font-size:10px;background:var(--accent-soft);
   border-radius:99px;padding:0 7px}
 .browfoot{flex:none;padding:8px 10px;border-top:1px solid var(--line);display:flex;
   align-items:center;gap:10px}
@@ -270,17 +419,21 @@ textarea{resize:vertical;min-height:72px}
   border-radius:5px;padding:1px 5px;background:var(--well)}
 .modal .actions .sp{margin-right:auto;color:var(--faint);font-size:11px;display:flex;
   align-items:center;gap:6px}
-</style></head><body>
+@media (max-width:720px){.stats{grid-template-columns:repeat(3,1fr)}}
+</style></head><body class="home">
 
 <aside id="side">
-  <div id="brand">
+  <div id="brand" onclick="goHome()" title="Home" role="button" tabindex="0">
     <div class="word">9<b>xf</b></div>
     <div class="tag">autonomous coding loops</div>
   </div>
   <button id="newBtn" class="primary" title="New session  (n)" aria-label="New session">+ New session</button>
-  <div class="raillabel">Sessions</div>
+  <div class="raillabel"><span>Sessions</span><span class="lvchip" id="railLevel" style="display:none"></span></div>
   <div id="runlist" role="list"></div>
-  <div id="railfoot"><span id="clock">--:--:--</span><a href="/?mode=cool" style="color:var(--faint);font:10.5px var(--mono);text-decoration:none;border:1px solid var(--line2);padding:1px 7px;border-radius:4px;transition:color .12s,border-color .12s" onmouseover="this.style.color='var(--amber)';this.style.borderColor='var(--amber)'" onmouseout="this.style.color='';this.style.borderColor=''">cool ⚡</a></div>
+  <div id="railfoot"><span id="clock">--:--:--</span>
+    <span class="rf-right"><span id="railStreak"></span>
+      <button id="themeBtn" title="Toggle light / dark  (theme)" aria-label="Toggle dark mode">☾</button>
+    </span></div>
 </aside>
 
 <main id="main">
@@ -303,26 +456,69 @@ textarea{resize:vertical;min-height:72px}
     <div id="pulsewrap" style="display:none"><span class="lbl">Pulse — one tick per iteration</span><div id="pulse"></div></div>
   </header>
 
-  <div id="panes">
-    <section id="chatwrap" aria-label="transcript">
-      <div class="panehead"><span>Transcript</span><span id="livehint"></span></div>
-      <div id="chat">
-        <div class="empty">
-          <h2>The night shift for your <b>code</b></h2>
-          <p>Set a goal and pick a folder. A local model plans, writes,
-          tests, and commits — on its own, for as long as you let it.</p>
-          <button class="primary" onclick="openNew()">Start a session</button>
+  <section id="home" aria-label="overview">
+    <div class="hwrap">
+      <div class="hhead">
+        <div>
+          <div class="hgreet"><span class="spark">✦</span> <span id="greetLine">What's up next?</span></div>
+          <div class="hsub" id="greetSub">Set a goal and a local model will plan, build, test, and commit on its own.</div>
+        </div>
+        <div class="lvcluster">
+          <div class="lvbadge"><span class="n" id="lvNum">1</span><span class="k">lvl</span></div>
+          <div class="lvinfo">
+            <div class="lvtop"><span class="t" id="lvTitle">Apprentice</span><span class="x" id="lvXp">0 XP</span></div>
+            <div class="xpbar"><div class="xpfill" id="xpFill"></div></div>
+          </div>
         </div>
       </div>
+
+      <div class="hrule"></div>
+      <div class="stats" id="stats"></div>
+      <div class="statnote" id="statnote"></div>
+
+      <div class="hrule"></div>
+      <div class="hsec"><span>Activity · last 20 weeks</span><span class="tag" id="streakTag"></span></div>
+      <div class="heatrow">
+        <div class="heatscroll"><div class="heat" id="heat"></div></div>
+        <div class="heatleg">less
+          <i class="hc"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><i class="hc l4"></i>
+          more</div>
+      </div>
+
+      <div class="hrule"></div>
+      <div class="hsec"><span>Achievements</span><span class="tag" id="achTag"></span></div>
+      <div class="badges" id="badges"></div>
+    </div>
+  </section>
+
+  <div id="panes">
+    <section id="chatwrap" aria-label="transcript">
+      <div class="panehead"><span>Transcript</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span id="livehint"></span>
+          <button id="playBtn" class="miniToggle" title="Let Looper hop around your transcript">✦ Looper</button>
+          <button id="diffBtn" class="miniToggle" title="Show or hide the diff register">Diff</button>
+        </span></div>
+      <div id="chat"></div>
       <div id="statusbar"></div>
     </section>
     <div class="gutter" id="gutter" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
     <section id="diffpane" aria-label="diff register">
-      <div class="panehead"><span id="diffTitle">Diff register</span><span id="diffPin"></span></div>
+      <div class="panehead"><span id="diffTitle">Diff register</span>
+        <span style="display:flex;align-items:center;gap:8px"><span id="diffPin"></span>
+          <button class="iconbtn" onclick="toggleDiff()" title="Hide diff register" aria-label="Hide diff register">✕</button>
+        </span></div>
       <div id="diff"><span class="ctx">select an iteration record to inspect its commit</span></div>
     </section>
   </div>
 </main>
+
+<!-- Looper, the pixel mascot -->
+<div id="mascot" class="idle" title="hi, I'm Looper" role="button" tabindex="0" aria-label="Looper the mascot">
+  <div id="bubble" aria-live="polite"></div>
+  <div id="zzz">z</div>
+  <div id="mascotArt"></div>
+</div>
 
 <div id="overlay" role="dialog" aria-modal="true"><div class="modal frame">
   <h2>New session</h2>
@@ -377,6 +573,14 @@ let openActs = new Set();
 /* instrument clock */
 setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11,19) + ' UTC'; }, 1000);
 
+/* ---------- view switching: home vs run ---------- */
+function goHome(){
+  current = null; pinnedCommit = null; lastRender = ''; lastRail = '';
+  document.body.className = 'home';
+  leavePlay();
+  tickStats(); tickRuns(); setMascotFromStats();
+}
+
 /* ---------- sidebar ---------- */
 function ledClass(r){
   if (r.finished) return 'finished';
@@ -395,28 +599,414 @@ async function tickRuns(){
       <div><div class="g">${esc(r.goal)}</div>
       <div class="s">${r.finished?'finished':esc(r.status)} · iter ${r.iteration}${r.tasks_total?` · ${r.tasks_done}/${r.tasks_total}`:''}</div></div>
     </div>`).join('') ||
-    '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no sessions on record</div>';
+    '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no sessions yet — hit New session</div>';
   if (html !== lastRail){ $('runlist').innerHTML = html; lastRail = html; }
+  // any run live? nudge the mascot into work mode while on the home screen
+  if (!current) mascotWorkingHint = runs.some(r => r.status === 'running');
 }
 function selectRun(dir){
   current = dir; pinnedCommit = null; lastRender = ''; lastRail = '';
   openIters = new Set(); touched = new Set(); autoIter = null; lastEntries = [];
   openActs = new Set();
+  document.body.className = 'run';
+  $('chat').innerHTML = '<div class="empty"><p>spinning up…</p></div>';
   tickRun(); tickRuns();
+}
+
+/* ---------- gamified overview ---------- */
+const LEVEL_TITLES = ['Apprentice','Tinkerer','Builder','Engineer','Architect',
+  'Maestro','Virtuoso','Luminary','Legend'];
+function levelTitle(l){ return LEVEL_TITLES[Math.min(l-1, LEVEL_TITLES.length-1)] || 'Legend'; }
+function hourLabel(h){
+  if (h === null || h === undefined) return '—';
+  const ap = h < 12 ? 'AM' : 'PM'; const hr = h % 12 || 12; return `${hr} ${ap}`;
+}
+let lastStats = null;
+function renderHome(s){
+  lastStats = s;
+  const p = s.progress || {level:1,xp:0,pct:0};
+  $('lvNum').textContent = p.level;
+  $('lvTitle').textContent = levelTitle(p.level);
+  $('lvXp').textContent = `${p.xp.toLocaleString()} XP`;
+  $('xpFill').style.width = Math.max(4, p.pct) + '%';
+  $('railLevel').style.display = ''; $('railLevel').textContent = `Lv ${p.level}`;
+
+  const stats = [
+    ['Sessions', s.sessions],
+    ['Iterations', s.iterations],
+    ['Goals', `<span class="em">${s.goals}</span>`],
+    ['Pass rate', `${s.pass_rate}<small>%</small>`],
+    ['Streak', `${s.current_streak}<small> d</small>`],
+  ];
+  $('stats').innerHTML = stats.map(([k,v]) =>
+    `<div class="stat"><div class="sk">${k}</div><div class="sv">${v}</div></div>`).join('');
+  $('statnote').textContent = s.sessions
+    ? `${s.active_days} active day${s.active_days===1?'':'s'} · ${s.tasks_done} tasks done · mostly ${s.favorite_model}`
+    : '';
+
+  $('heat').innerHTML = (s.heatmap||[]).map(d =>
+    `<i class="hc l${d.level}" title="${d.date}: ${d.count} iteration${d.count===1?'':'s'}"></i>`).join('');
+  $('streakTag').textContent = s.longest_streak
+    ? `longest ${s.longest_streak}d · peak ${hourLabel(s.peak_hour)}` : '';
+
+  $('badges').innerHTML = (s.achievements||[]).map(a =>
+    `<div class="badge ${a.unlocked?'unlk':'lock'}" title="${esc(a.name)} — ${esc(a.blurb)}"><div class="g">${a.unlocked?a.glyph:'🔒'}</div></div>`).join('');
+  $('achTag').textContent = `${s.unlocked_count}/${(s.achievements||[]).length}`;
+  $('railStreak').textContent = s.current_streak ? `🔥 ${s.current_streak}d` : '';
+
+  $('greetSub').textContent = s.sessions
+    ? "Looper's kept the lights on — pick a session, or start something new."
+    : 'Set a goal and a local model will plan, build, test, and commit on its own.';
+  $('greetLine').textContent = s.sessions ? greetByLevel(p.level) : "What's up next?";
+}
+function greetByLevel(l){
+  if (l >= 7) return 'Welcome back, legend.';
+  if (l >= 4) return 'Welcome back, builder.';
+  if (l >= 2) return 'Good to see you again.';
+  return 'Ready for the night shift?';
+}
+async function tickStats(){
+  if (current) return;            // only refresh the overview while it's visible
+  let s; try{ s = await (await fetch('/api/stats')).json(); }catch(e){ return; }
+  if (s && !s.error) renderHome(s);
+}
+
+/* ---------- pixel mascot: "Looper" ---------- */
+// Hand-built 16x16 pixel art. Each char maps to a flat pastel colour; '.' is
+// empty. Swapping the eye/mouth rows gives us blink / happy / sleep expressions
+// with zero external assets — image-rendering:pixelated keeps it crisp.
+const MPAL = {B:'#c2a7e2', D:'#9f86d0', E:'#463a57', L:'#ffffff',
+  M:'#9270c4', C:'#e3a9d0', A:'var(--mascot-tip)'};   // C = rosy cheek
+const M_BODY = [
+  '................',
+  '.......A........',
+  '.......D........',
+  '....BBBBBBBB....',
+  '..BBBBBBBBBBBB..',
+  '.BBBBBBBBBBBBBB.',
+  '.BBBBBBBBBBBBBB.',
+  '.BBLEBBBBBBLEBB.',   // eyes (open) with a white glint
+  '.BBEEBBBBBBEEBB.',
+  '.BBBBBBBBBBBBBB.',
+  '.BCBBBMMMMBBBCB.',   // cheeks + smile
+  '.BBBBBBBBBBBBBB.',
+  '..BBBBBBBBBBBB..',
+  '...DDDDDDDDDD...',
+  '...DD......DD...',   // feet
+  '................',
+];
+// expression overlays: swap eye/mouth rows to emote
+const EXPR = {
+  idle:     null,
+  blink:    {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.'},
+  happy:    {7:'.BBBBBBBBBBBBBB.', 8:'.BEEBBBBBBBBEEB.', 10:'.BBMMMMMMMMMMBB.'},
+  sleep:    {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBBBBMMBBBBBB.'},
+  sad:      {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBMMMMMMMMBB..'},
+  confused: {7:'.BBLEBBBBBBBBBB.', 8:'.BBEEBBBBBBEBBB.', 10:'.BBBBMMBMMBBB...'},
+  read:     {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBBBBMMBBBBBB.'},
+};
+function mascotSvg(expr){
+  const rows = M_BODY.slice();
+  const ov = EXPR[expr];
+  if (ov) for (const k in ov) rows[k] = ov[k];
+  let cells = '';
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++){
+      const c = row[x];
+      if (c === '.' || !MPAL[c]) continue;
+      // the antenna tip ('A') is themed via CSS class; the rest are flat pixels
+      cells += c === 'A'
+        ? `<rect class="m-tip" x="${x}" y="${y}" width="1" height="1"/>`
+        : `<rect x="${x}" y="${y}" width="1" height="1" fill="${MPAL[c]}"/>`;
+    }
+  });
+  return `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${cells}</svg>`;
+}
+let mascotState = 'idle', mascotWorkingHint = false, blinkTimer = null, prevGoals = null;
+let interactiveOn = true, bobPhase = 0, lastFinishedDir = null;
+const finishedSeen = new Set();
+// physics + "brain" state for play mode — Looper roams and reacts on his own
+const play = {on:false, raf:0, t:0, x:0, y:0, vx:0, vy:0, sx:1, sy:1, grounded:false,
+  targetKey:'', targetFrac:0.5, pendingReact:false, reactUntil:0, tilt:0, droop:0};
+function setMascotArt(expr){ $('mascotArt').innerHTML = mascotSvg(expr); }
+function setMascotState(st){
+  if (play.on) return;                 // physics owns the body in play mode
+  if (st === mascotState) return;
+  mascotState = st;
+  const m = $('mascot');
+  m.classList.remove('idle','working','happy','sleep');
+  document.documentElement.style.setProperty('--mascot-tip',
+    st === 'working' ? 'var(--green)' : st === 'happy' ? 'var(--pink)' : 'var(--accent)');
+  if (st === 'happy'){
+    m.classList.add('happy'); setMascotArt('happy');
+    setTimeout(() => { if (mascotState === 'happy') setMascotState(mascotWorkingHint ? 'working' : 'idle'); }, 3200);
+  } else if (st === 'working'){
+    m.classList.add('working'); setMascotArt('idle');
+  } else if (st === 'sleep'){
+    m.classList.add('sleep'); setMascotArt('sleep');
+  } else {
+    m.classList.add('idle'); setMascotArt('idle');
+  }
+}
+function setMascotFromStats(){
+  if (play.on) return;                            // physics owns the body in play mode
+  if (mascotState === 'happy') return;            // let a celebration finish
+  if (mascotWorkingHint) return setMascotState('working');
+  if (lastStats && lastStats.sessions === 0) return setMascotState('sleep');
+  setMascotState('idle');
+}
+// idle blink loop
+function scheduleBlink(){
+  clearTimeout(blinkTimer);
+  blinkTimer = setTimeout(() => {
+    if (mascotState === 'idle' && !document.hidden){
+      setMascotArt('blink');
+      setTimeout(() => { if (mascotState === 'idle') setMascotArt('idle'); }, 150);
+    }
+    scheduleBlink();
+  }, 2600 + Math.random()*3400);
+}
+const MLINES = {
+  idle:    ["point me at a folder", "what are we building?", "I love a good loop",
+            "ready when you are", "the night shift awaits"],
+  working: ["on it…", "tinkering…", "tests, then commit", "I got this",
+            "compiling thoughts…"],
+  happy:   ["shipped it! 🎉", "goal complete!", "another one down", "we did it!"],
+  sleep:   ["zzz…", "wake me with a goal", "(snoozing)"],
+};
+function sayBubble(text){
+  const b = $('bubble'); b.textContent = text; b.classList.add('show');
+  clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('show'), 2800);
+}
+function pokeMascot(){
+  const m = $('mascot');
+  if (play.on){ play.vy = -13; play.grounded = false; }   // boop → little jump
+  else { m.classList.remove('poke'); void m.offsetWidth; m.classList.add('poke'); }
+  const key = play.on ? (mascotWorkingHint ? 'working' : 'idle') : mascotState;
+  const pool = MLINES[key] || MLINES.idle;
+  sayBubble(pool[Math.floor(Math.random()*pool.length)]);
+  // a cosmetic XP sparkle — pure delight, the real XP lives server-side
+  const pop = document.createElement('div');
+  pop.className = 'xppop'; pop.textContent = '+1';
+  m.appendChild(pop); setTimeout(() => pop.remove(), 900);
+}
+$('mascot').onclick = pokeMascot;
+$('mascot').onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pokeMascot(); } };
+
+/* ---------- Looper's pixel physics + brain ----------
+   Looper is a little critic that roams the transcript on his own: he wanders
+   up and down the cards, picks one to "inspect", reads the live code, and
+   reacts to what he finds — happy on a Pass, sad on a Fail, head-tilt-confused
+   on errors. The brain (looperThink) picks intents on a randomized timer; the
+   physics (physicsStep) carries him there with gravity + squash-and-stretch. */
+const MS = 44, GRAV = 0.7;
+let brainTimer = 0, seenKeys = new Set();
+
+// every card/activity-block currently on screen, as perchable platforms
+function platforms(){
+  const c = $('chat').getBoundingClientRect();
+  const out = [];
+  $('chat').querySelectorAll('.rec, .actgroup').forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > c.top + 6 && r.top < c.bottom - 6 && r.height > 14)
+      out.push({el, key: el.dataset.k || '', r});
+  });
+  return out;
+}
+function platByKey(k){
+  if (!k) return null;
+  let el; try{ el = $('chat').querySelector(`[data-k="${CSS.escape(k)}"]`); }catch(e){ el = null; }
+  if (!el) return null;
+  const c = $('chat').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (r.bottom < c.top + 6 || r.top > c.bottom - 6) return null;   // scrolled off
+  return {el, key: k, r};
+}
+function perchOf(p){
+  // sit on the card's top-LEFT corner, tucked into the gutter looking at it —
+  // beside your work, not floating over the text
+  const c = $('chat').getBoundingClientRect();
+  let tx = p.r.left - MS * 0.34;
+  let ty = p.r.top - MS + 7;                                       // feet on the top edge
+  tx = Math.max(c.left - MS * 0.25, Math.min(tx, c.right - MS));
+  ty = Math.max(c.top + 2, Math.min(ty, c.bottom - MS - 2));
+  return {tx, ty};
+}
+
+/* ----- reactions: read a card's verdict/flags and emote about it ----- */
+function moodOf(el){
+  if (el.querySelector('.verdict.ok')) return 'happy';
+  if (el.querySelector('.verdict.bad')) return 'sad';
+  if (el.querySelector('.errblock, .flag.bad, .flag.warn')) return 'confused';
+  return 'read';                                                   // plain card / live code
+}
+const REACT_LINE = {
+  happy:    ['passed! ✓', 'nice one', 'clean!', 'it works!', 'love it'],
+  sad:      ['failed…', 'oof', 'not yet', 'aw, red', 'so close'],
+  confused: ['huh?', "what's this?", 'wait…', 'let me re-read', 'hmm?'],
+  read:     ['reading…', "let's see", 'scanning…', 'interesting', 'mm-hmm'],
+};
+function emote(ch, color){
+  const e = document.createElement('div'); e.className = 'emote'; e.textContent = ch;
+  if (color) e.style.color = color;
+  $('mascot').appendChild(e); setTimeout(() => e.remove(), 1100);
+}
+function doReact(el){
+  const mood = moodOf(el);
+  setMascotArt(mood);
+  play.reactUntil = Date.now() + 1700;
+  if (mood === 'happy'){ emote('♥', 'var(--pink)'); play.vy = -8.5; play.grounded = false; }
+  else if (mood === 'sad'){ emote('💧'); play.droop = 1; }
+  else if (mood === 'confused'){ emote('?'); play.tilt = 1; }
+  else if (Math.random() < 0.5){ emote('?'); }
+  if (Math.random() < 0.6){ const p = REACT_LINE[mood]; sayBubble(p[Math.floor(Math.random()*p.length)]); }
+}
+
+/* ----- the brain: pick where to go and what to do next ----- */
+function looperThink(){
+  if (!play.on) return;
+  const ps = platforms();
+  if (!ps.length){ scheduleThink(2500); return; }
+  const keys = ps.map(p => p.key);
+  const fresh = keys.filter(k => k && !seenKeys.has(k));
+  seenKeys = new Set(keys);
+  const cur = ps.findIndex(p => p.key === play.targetKey);
+
+  // mostly he just rests and watches; he only ambles over now and then, and
+  // perks up to check a card that's brand-new
+  let key = play.targetKey, move = false;
+  if (fresh.length && Math.random() < 0.7){               // new card landed — go look
+    key = fresh[fresh.length-1]; move = true;
+  } else {
+    const roll = Math.random();
+    if (roll < 0.62){ /* rest — stay put and watch */ }
+    else if (roll < 0.80 && cur > 0){ key = ps[cur-1].key; move = true; }                 // up one
+    else if (roll < 0.94 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; } // down one
+    else { key = ps[Math.floor(Math.random()*ps.length)].key; move = true; }              // rarely, elsewhere
+  }
+  if (move){ play.targetKey = key; play.pendingReact = true; }
+  scheduleThink(4000 + Math.random()*5000);               // calm: a decision every 4–9s
+}
+function scheduleThink(ms){ clearTimeout(brainTimer); brainTimer = setTimeout(looperThink, ms); }
+
+/* ----- the body: carry him toward the brain's target ----- */
+function physicsStep(){
+  if (!play.on) return;
+  play.t++;
+  let tgt = platByKey(play.targetKey);
+  if (!tgt){ const ps = platforms(); tgt = ps[ps.length-1]; if (tgt) play.targetKey = tgt.key; }
+  if (!tgt){ play.raf = requestAnimationFrame(physicsStep); return; }
+  const perch = perchOf(tgt);
+
+  if (play.grounded){
+    const dx = perch.tx - play.x, dy = perch.ty - play.y;
+    if (dy > 14){ play.grounded = false; }                         // card below → calmly fall to it
+    else if (dy < -26){                                            // card above → a gentle hop up
+      play.grounded = false; play.vy = -(5 + Math.min(5, Math.abs(dy)*0.045));
+      play.vx = Math.max(-3.5, Math.min(3.5, dx*0.05));
+    } else {                                                       // close → glide smoothly, no hopping
+      play.x += dx*0.10; play.y += dy*0.10;
+      if (Math.abs(dx) < 1.5 && Math.abs(dy) < 1.5 && play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
+    }
+  }
+  if (!play.grounded){
+    play.vy += GRAV; play.y += play.vy; play.x += play.vx; play.vx *= 0.99;
+    if (play.vy < 0){ play.sx = 0.93; play.sy = 1.09; }            // slight stretch rising
+    if (play.y >= perch.ty && play.vy >= 0){                       // land softly
+      play.y = perch.ty; play.vy = 0; play.vx = 0; play.grounded = true;
+      play.sx = 1.13; play.sy = 0.87;                              // gentle squash
+      if (play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
+    }
+  }
+
+  play.sx += (1-play.sx)*0.18; play.sy += (1-play.sy)*0.18;        // ease squash back
+  play.tilt += (0-play.tilt)*0.03; play.droop += (0-play.droop)*0.03;
+  if (play.reactUntil && Date.now() > play.reactUntil){ play.reactUntil = 0; setMascotArt('idle'); }
+
+  let bob = 0, rot = 0;
+  if (play.grounded){
+    const sad = play.droop > 0.2;
+    bobPhase += sad ? 0.03 : 0.045;
+    bob = Math.sin(bobPhase) * (sad ? 0.7 : 1.1) + play.droop * 4;        // gentle breathing; sadness sinks
+    if (!play.reactUntil && Math.random() < 0.003){                       // occasional blink
+      setMascotArt('blink'); setTimeout(() => { if (play.on && !play.reactUntil) setMascotArt('idle'); }, 150);
+    }
+  }
+  rot += Math.sin(play.t * 0.35) * 7 * play.tilt;                         // confused head-tilt
+  $('mascot').style.transform =
+    `translate(${play.x.toFixed(1)}px,${(play.y+bob).toFixed(1)}px) rotate(${rot.toFixed(2)}deg) scale(${play.sx.toFixed(3)},${play.sy.toFixed(3)})`;
+  play.raf = requestAnimationFrame(physicsStep);
+}
+function curFace(){ return play.tilt>0.2?'confused':play.droop>0.2?'sad':'idle'; }
+
+function enterPlay(){
+  if (play.on) return;
+  const ps = platforms(); if (!ps.length) return;
+  const start = ps[ps.length-1], perch = perchOf(start);
+  play.on = true; play.t = 0; bobPhase = 0;
+  play.targetKey = start.key; play.pendingReact = true;
+  play.tilt = 0; play.droop = 0; play.reactUntil = 0;
+  play.x = perch.tx; play.y = perch.ty - 120; play.vx = 0; play.vy = 0; play.grounded = false;
+  const m = $('mascot'); m.classList.add('play'); m.classList.remove('idle','working','happy','sleep');
+  setMascotArt('idle');
+  seenKeys = new Set(ps.map(p => p.key));
+  cancelAnimationFrame(play.raf); play.raf = requestAnimationFrame(physicsStep);
+  scheduleThink(2500);
+}
+function leavePlay(){
+  if (!play.on) return;
+  play.on = false; cancelAnimationFrame(play.raf); clearTimeout(brainTimer);
+  const m = $('mascot'); m.classList.remove('play'); m.style.transform = '';
+  mascotState = '';                                              // force a fresh dock state
+  setMascotFromStats();
+}
+function updatePlayMode(){
+  const want = interactiveOn && document.body.className === 'run' && platforms().length > 0;
+  if (want) enterPlay(); else leavePlay();
+}
+$('playBtn').onclick = () => {
+  interactiveOn = !interactiveOn;
+  try{ localStorage.setItem('9xf-looper', interactiveOn ? 'on' : 'off'); }catch(e){}
+  $('playBtn').classList.toggle('on', interactiveOn);
+  updatePlayMode();
+  if (!interactiveOn) sayBubble('back to my corner!');
+};
+function initInteractive(){
+  let v = null; try{ v = localStorage.getItem('9xf-looper'); }catch(e){}
+  interactiveOn = v !== 'off';                                   // default on
+  $('playBtn').classList.toggle('on', interactiveOn);
+}
+
+/* ---------- diff register: collapse for a clean, single-column read ---------- */
+function setDiff(show){
+  document.body.classList.toggle('nodiff', !show);
+  $('diffBtn').classList.toggle('on', show);
+  try{ localStorage.setItem('9xf-diff', show ? 'on' : 'off'); }catch(e){}
+}
+function toggleDiff(){ setDiff(document.body.classList.contains('nodiff')); }
+$('diffBtn').onclick = toggleDiff;
+function initDiff(){
+  let v = null; try{ v = localStorage.getItem('9xf-diff'); }catch(e){}
+  setDiff(v !== 'off');                                          // default shown
+}
+// celebrate when the shipped-goal count ticks up
+function checkCelebrate(goals){
+  if (prevGoals !== null && goals > prevGoals){ setMascotState('happy'); sayBubble('goal complete! 🎉'); }
+  prevGoals = goals;
 }
 
 /* ---------- pulse strip: the run's life as a seismograph ---------- */
 function pulseSvg(entries, running){
   const iters = entries.filter(e => e.event === 'iteration').slice(-140);
   const step = 8, w = Math.max(600, iters.length*step + 26), h = 30, base = 19;
-  const parts = [`<line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="#221f1d"/>`];
+  const parts = [`<line class="pl-base" x1="0" y1="${base}" x2="${w}" y2="${base}"/>`];
   iters.forEach((e, i) => {
     const x = 8 + i*step;
     parts.push(e.ok
-      ? `<line x1="${x}" y1="${base}" x2="${x}" y2="5" stroke="#7d9a78" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
-      : `<line x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke="#b56a5f" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
+      ? `<line class="pl-pass" x1="${x}" y1="${base}" x2="${x}" y2="5" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
+      : `<line class="pl-fail" x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
   });
-  if (running) parts.push(`<rect class="cursor" x="${8 + iters.length*step}" y="8" width="5" height="11" fill="#b06a4f"/>`);
+  if (running) parts.push(`<rect class="cursor pl-cur" x="${8 + iters.length*step}" y="8" width="5" height="11"/>`);
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMinYMid meet"
     role="img" aria-label="iteration pulse: ${iters.filter(e=>e.ok).length} passed, ${iters.filter(e=>!e.ok).length} failed">${parts.join('')}</svg>`;
 }
@@ -462,7 +1052,7 @@ function activityGroupHtml(group){
   const rows = group.map(g =>
     `<div class="actrow"><span class="k">${esc(g.mode||'')}</span><span>${esc(g.summary)}</span></div>`).join('');
   const n = group.length;
-  return `<div class="actgroup ${open?'open':''}">
+  return `<div class="actgroup ${open?'open':''}" data-k="${key}">
     <div class="acthead" onclick="toggleAct('${key}')">
       <span class="chev">▶</span>
       <span class="actcount">${n} step${n>1?'s':''}</span>
@@ -476,7 +1066,7 @@ function entryHtml(e){
   if (e.event === 'live'){
     const gen = e.model_tokens > 0;
     const badge = gen ? `${e.model_tokens} tok${e.model_tps?` · ${e.model_tps} tok/s`:''}` : 'Running';
-    return `<article class="rec open selected">
+    return `<article class="rec open selected" data-k="live">
       <div class="rechead" style="cursor:default">
         <span class="chev" style="visibility:hidden">▶</span>
         <span class="recno">${pad3(e.iteration)}</span>
@@ -496,7 +1086,7 @@ function entryHtml(e){
     const open = openIters.has(e.iteration);
     const sel = pinnedCommit && e.commit === pinnedCommit ? 'selected' : '';
     const title = esc(e.subtask || '(no task)');
-    return `<article class="rec ${open?'open':''} ${sel}">
+    return `<article class="rec ${open?'open':''} ${sel}" data-k="i${e.iteration}">
       <div class="rechead" onclick="toggleRec(${e.iteration})">
         <span class="chev">▶</span>
         <span class="recno">${pad3(e.iteration)}</span>
@@ -511,7 +1101,7 @@ function entryHtml(e){
         ${e.files.length?`<div class="files">${e.files.map(f=>`<span class="file">${esc(f)}</span>`).join('')}</div>`:''}
         ${e.model_calls?`<div class="recline execl"><span class="lbl">Model</span><span class="txt">${e.model_calls} call${e.model_calls===1?'':'s'} · ${esc(e.model_seconds)}s</span></div>`:''}
         ${e.tool_runs.map(t=>`<div class="recline execl"><span class="lbl">Tool</span><span class="txt">${esc(t.name)} → ${esc(t.result)}</span></div>`).join('')}
-        ${e.warnings&&e.warnings.length?`<div class="errblock" style="color:var(--amber);background:rgba(176,106,79,.09)">${e.warnings.map(x=>esc(x)).join('<br>')}</div>`:''}
+        ${e.warnings&&e.warnings.length?`<div class="errblock" style="color:var(--accent2);background:var(--accent-soft)">${e.warnings.map(x=>esc(x)).join('<br>')}</div>`:''}
         ${e.errors.length?`<div class="errblock">${e.errors.map(x=>esc(x)).join('<br>')}</div>`:''}
         <div class="recmeta">${e.commit?`<span class="hash" onclick="event.stopPropagation();loadDiff('${esc(e.commit)}',true)">${esc(e.commit)}</span><span>view diff →</span>`:'<span>no commit</span>'}</div>
       </div></div>
@@ -561,6 +1151,15 @@ async function tickRun(){
   $('pulsewrap').style.display = r.entries.some(e => e.event === 'iteration') ? '' : 'none';
   $('pulse').innerHTML = pulseSvg(r.entries, running);
 
+  // mascot mirrors the live run; in play mode the physics engine owns the body
+  mascotWorkingHint = running;
+  const freshFinish = r.finished && !finishedSeen.has(current);
+  if (r.finished) finishedSeen.add(current);
+  if (play.on){
+    document.documentElement.style.setProperty('--mascot-tip', running ? 'var(--green)' : 'var(--accent)');
+    if (freshFinish){ play.vy = -17; play.vx = (Math.random()*6 - 3); play.grounded = false; sayBubble('shipped it! 🎉'); }
+  } else if (r.finished){ setMascotState('happy'); } else { setMascotFromStats(); }
+
   const sb = $('statusbar');
   if (running){
     sb.style.display = 'flex';
@@ -580,6 +1179,7 @@ async function tickRun(){
   }
   lastEntries = r.entries;
   renderTranscript(r.entries, true);
+  updatePlayMode();                 // start/refresh Looper once cards exist
   if (!pinnedCommit){
     const commits = r.entries.filter(e => e.commit && e.event === 'iteration');
     if (commits.length) loadDiff(commits[commits.length-1].commit, false);
@@ -719,6 +1319,27 @@ async function startSession(){
 
 /* ---------- sidebar collapse ---------- */
 $('sideToggle').onclick = () => $('side').classList.toggle('collapsed');
+$('brand').onkeydown = e => { if (e.key === 'Enter') goHome(); };
+
+/* ---------- light / dark theme ---------- */
+function applyTheme(t){
+  const dark = t === 'dark';
+  if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  $('themeBtn').textContent = dark ? '☀' : '☾';   // shows what you'll switch TO
+}
+function initTheme(){
+  let t = null;
+  try{ t = localStorage.getItem('9xf-theme'); }catch(e){}
+  if (t !== 'dark' && t !== 'light')
+    t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  applyTheme(t);
+}
+$('themeBtn').onclick = () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('9xf-theme', next); }catch(e){}
+  applyTheme(next);
+};
 
 /* ---------- resizable transcript / diff split ---------- */
 (function(){
@@ -744,5 +1365,15 @@ $('sideToggle').onclick = () => $('side').classList.toggle('collapsed');
   });
 })();
 
-tickRuns(); setInterval(tickRuns, 2500); setInterval(tickRun, 2000);
+/* ---------- boot ---------- */
+initTheme();
+initInteractive();
+initDiff();
+setMascotArt('idle');
+setMascotState('idle');
+scheduleBlink();
+tickStats(); tickRuns();
+setInterval(tickRuns, 2500);
+setInterval(tickRun, 2000);
+setInterval(() => { tickStats(); if (lastStats) checkCelebrate(lastStats.goals); setMascotFromStats(); }, 4000);
 </script></body></html>"""
