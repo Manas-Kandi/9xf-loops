@@ -19,7 +19,7 @@ state also carries a glyph or word).
 APP_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>9xf</title>
+<title>Loopy</title>
 <style>
 :root{
   /* flat pale pink/purple pastels — light surfaces, hairline borders */
@@ -608,7 +608,7 @@ function selectRun(dir){
   current = dir; pinnedCommit = null; lastRender = ''; lastRail = '';
   openIters = new Set(); touched = new Set(); autoIter = null; lastEntries = [];
   openActs = new Set();
-  document.body.className = 'run';
+  document.body.className = 'run' + (diffShown ? '' : ' nodiff');
   $('chat').innerHTML = '<div class="empty"><p>spinning up…</p></div>';
   tickRun(); tickRuns();
 }
@@ -671,64 +671,143 @@ async function tickStats(){
   if (s && !s.error) renderHome(s);
 }
 
-/* ---------- pixel mascot: "Looper" ---------- */
-// Hand-built 16x16 pixel art. Each char maps to a flat pastel colour; '.' is
-// empty. Swapping the eye/mouth rows gives us blink / happy / sleep expressions
-// with zero external assets — image-rendering:pixelated keeps it crisp.
-const MPAL = {B:'#c2a7e2', D:'#9f86d0', E:'#463a57', L:'#ffffff',
-  M:'#9270c4', C:'#e3a9d0', A:'var(--mascot-tip)'};   // C = rosy cheek
-const M_BODY = [
+/* ---------- pixel mascot: "Looper" ----------
+   A composited 16x16 sprite: one fixed BODY plus swappable FACE / ARMS / LEGS
+   overlays. Animations are short sequences of those combos, so a handful of
+   hand-drawn parts yields walking, thinking, cheering, flossing, even kicking
+   a ball around — fully offline, no text, all feeling on the face + body. */
+const COL = {B:'#c2a7e2', D:'#9f86d0', E:'#463a57', L:'#ffffff',
+  M:'#9270c4', C:'#e3a9d0', H:'#9f86d0'};            // H = hand/arm
+const BODY = [
   '................',
-  '.......A........',
+  '.......A........',   // antenna tip (themed)
   '.......D........',
   '....BBBBBBBB....',
+  '...BBBBBBBBBB...',
   '..BBBBBBBBBBBB..',
-  '.BBBBBBBBBBBBBB.',
-  '.BBBBBBBBBBBBBB.',
-  '.BBLEBBBBBBLEBB.',   // eyes (open) with a white glint
-  '.BBEEBBBBBBEEBB.',
-  '.BBBBBBBBBBBBBB.',
-  '.BCBBBMMMMBBBCB.',   // cheeks + smile
-  '.BBBBBBBBBBBBBB.',
   '..BBBBBBBBBBBB..',
-  '...DDDDDDDDDD...',
-  '...DD......DD...',   // feet
+  '..BBBBBBBBBBBB..',
+  '..BBBBBBBBBBBB..',
+  '..BCBBBBBBBBCB..',   // cheeks
+  '..BBBBBBBBBBBB..',
+  '...BBBBBBBBBB...',
+  '....BBBBBBBB....',
+  '................',
+  '................',
   '................',
 ];
-// expression overlays: swap eye/mouth rows to emote
-const EXPR = {
-  idle:     null,
-  blink:    {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.'},
-  happy:    {7:'.BBBBBBBBBBBBBB.', 8:'.BEEBBBBBBBBEEB.', 10:'.BBMMMMMMMMMMBB.'},
-  sleep:    {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBBBBMMBBBBBB.'},
-  sad:      {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBMMMMMMMMBB..'},
-  confused: {7:'.BBLEBBBBBBBBBB.', 8:'.BBEEBBBBBBEBBB.', 10:'.BBBBMMBMMBBB...'},
-  read:     {7:'.BBBBBBBBBBBBBB.', 8:'.BBEEBBBBBBEEBB.', 10:'.BBBBBBMMBBBBBB.'},
+const FACES = {        // eyes rows 6-7, mouth rows 8-9
+  idle:     {6:'....LE....LE....', 7:'....EE....EE....', 9:'.....MMMMMM.....'},
+  blink:    {7:'....EE....EE....', 9:'.....MMMMMM.....'},
+  happy:    {6:'....EE....EE....', 9:'....MMMMMMMM....'},
+  sleep:    {7:'....EE....EE....', 9:'.......MM.......'},
+  sad:      {7:'....EE....EE....', 8:'......MMMM......', 9:'.....M....M.....'},
+  confused: {6:'....LE..........', 7:'....EE....E.....', 9:'.....M.MM.M.....'},
+  focus:    {7:'....EE....EE....', 9:'.......MM.......'},
+  surprise: {6:'....EE....EE....', 7:'....EE....EE....', 9:'......MMMM......'},
+  content:  {6:'....LE....LE....', 7:'....EE....EE....', 9:'......MM........'},
 };
-function mascotSvg(expr){
-  const rows = M_BODY.slice();
-  const ov = EXPR[expr];
-  if (ov) for (const k in ov) rows[k] = ov[k];
+const ARMS = {
+  down:   {8:'.H............H.', 9:'.H............H.'},
+  swingA: {7:'.H..............', 9:'..............H.'},
+  swingB: {7:'..............H.', 9:'.H..............'},
+  up:     {3:'.H............H.', 4:'.H............H.'},
+  chin:   {9:'....H.........H.'},
+  face:   {6:'....HH..........', 9:'..............H.'},
+  head:   {3:'....H...........', 4:'.H............H.'},
+  flossA: {6:'..............H.', 10:'.H..............'},
+  flossB: {6:'.H..............', 10:'..............H.'},
+  out:    {7:'.H............H.'},
+  hip:    {9:'...H..........H.'},
+};
+const LEGS = {
+  stand: {13:'....BB....BB....', 14:'....DD....DD....'},
+  walkA: {13:'...BB......BB...', 14:'..DD........DD..'},
+  walkB: {13:'......BBBB......', 14:'......DDDD......'},
+  tuck:  {13:'.....DDDD.......'},
+  kick:  {13:'....BB....BBBB..', 14:'....DD........D.'},
+  sit:   {13:'...DDDDDDDDDD...'},
+};
+// animations: frames are [face, arms, legs, holdFrames, ball?]  ball=[x,y,colour]
+const ANIM = {
+  idle:    {loop:true, frames:[['idle','down','stand',90],['blink','down','stand',6],
+            ['idle','down','stand',70],['idle','down','stand',46]]},
+  cheer:   {next:'idle', frames:[['happy','up','stand',10],['happy','up','tuck',9],
+            ['happy','up','stand',9],['happy','up','tuck',9],['happy','up','stand',16]]},
+  dance:   {next:'idle', frames:[['happy','hip','walkA',9],['happy','out','walkB',9],
+            ['happy','hip','walkA',9],['happy','out','walkB',9],['happy','up','stand',12]]},
+  floss:   {next:'idle', frames:[['happy','flossA','stand',8],['happy','flossB','stand',8],
+            ['happy','flossA','stand',8],['happy','flossB','stand',8],['happy','flossA','stand',9]]},
+  joy:     {next:'idle', frames:[['surprise','down','stand',6],['happy','up','tuck',12],
+            ['happy','up','stand',8],['happy','up','tuck',10],['happy','up','stand',12]]},
+  slump:   {next:'idle', frames:[['surprise','down','stand',7],['sad','down','sit',46],['sad','down','sit',46]]},
+  facepalm:{next:'idle', frames:[['sad','face','stand',28],['sad','face','stand',40]]},
+  scratch: {next:'idle', frames:[['confused','head','stand',14],['confused','head','walkA',14],
+            ['confused','head','stand',16]]},
+  think:   {next:'idle', frames:[['focus','chin','stand',46],['focus','chin','stand',34]]},
+  stretch: {next:'idle', frames:[['focus','up','stand',16],['content','up','tuck',12],['idle','down','stand',14]]},
+  soccer:  {next:'idle', frames:[['surprise','down','stand',12,[11,13,'#f4f4f4']],
+            ['focus','out','stand',8,[10,13,'#f4f4f4']],['happy','out','kick',8,[12,12,'#f4f4f4']],
+            ['happy','up','stand',8,[14,11,'#f4f4f4']],['happy','up','stand',8,[16,10,'#f4f4f4']],
+            ['happy','up','stand',12]]},
+  bball:   {next:'idle', frames:[['focus','out','stand',8,[7,12,'#e08a3c']],
+            ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','tuck',7,[7,4,'#e08a3c']],
+            ['focus','down','stand',7,[7,8,'#e08a3c']],['focus','out','stand',8,[7,12,'#e08a3c']],
+            ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','stand',10]]},
+};
+function compose(f, a, l){
+  const rows = BODY.slice();
+  [LEGS[l], ARMS[a], FACES[f]].forEach(ov => { if (!ov) return;
+    for (const k in ov){ const r = +k, s = ov[k], arr = rows[r].split('');
+      for (let x = 0; x < s.length; x++) if (s[x] !== '.') arr[x] = s[x];
+      rows[r] = arr.join(''); } });
+  return rows;
+}
+function spriteSvg(rows, ball){
   let cells = '';
-  rows.forEach((row, y) => {
-    for (let x = 0; x < row.length; x++){
-      const c = row[x];
-      if (c === '.' || !MPAL[c]) continue;
-      // the antenna tip ('A') is themed via CSS class; the rest are flat pixels
-      cells += c === 'A'
-        ? `<rect class="m-tip" x="${x}" y="${y}" width="1" height="1"/>`
-        : `<rect x="${x}" y="${y}" width="1" height="1" fill="${MPAL[c]}"/>`;
-    }
-  });
+  for (let y = 0; y < rows.length; y++){ const row = rows[y];
+    for (let x = 0; x < 16; x++){ const ch = row[x];
+      if (ch === 'A'){ cells += `<rect class="m-tip" x="${x}" y="${y}" width="1" height="1"/>`; continue; }
+      if (ch === '.' || !COL[ch]) continue;
+      cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${COL[ch]}"/>`; } }
+  if (ball) cells += `<rect x="${ball[0]}" y="${ball[1]}" width="2" height="2" fill="${ball[2]}"/>`;
   return `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${cells}</svg>`;
 }
 let mascotState = 'idle', mascotWorkingHint = false, blinkTimer = null, prevGoals = null;
-let interactiveOn = true, bobPhase = 0, lastFinishedDir = null;
+let interactiveOn = true, bobPhase = 0, lastFinishedDir = null, diffShown = true;
 const finishedSeen = new Set();
-// physics + "brain" state for play mode — Looper roams and reacts on his own
+// physics + animation + "brain" state for play mode
 const play = {on:false, raf:0, t:0, x:0, y:0, vx:0, vy:0, sx:1, sy:1, grounded:false,
-  targetKey:'', targetFrac:0.5, pendingReact:false, reactUntil:0, tilt:0, droop:0};
-function setMascotArt(expr){ $('mascotArt').innerHTML = mascotSvg(expr); }
+  targetKey:'', pendingReact:false, tilt:0, droop:0,
+  anim:null, ai:0, af:0, animLoop:false, animNext:'idle', acting:false, walkT:0};
+
+let lastSig = '';
+function renderPose(f, a, l, ball){
+  const sig = f + a + l + (ball ? ball.join(',') : '');
+  if (sig === lastSig) return; lastSig = sig;     // skip identical frames (cheap)
+  $('mascotArt').innerHTML = spriteSvg(compose(f, a, l), ball);
+}
+function setMascotArt(face){                       // static pose for dock / home mode
+  renderPose(FACES[face] ? face : 'idle', face === 'happy' ? 'up' : 'down', 'stand', null);
+}
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+// frame-based animation player (play mode)
+function playAnim(name){
+  const A = ANIM[name]; if (!A) return;
+  play.anim = A.frames; play.ai = 0; play.af = A.frames[0][3];
+  play.animLoop = !!A.loop; play.animNext = A.next || 'idle'; play.acting = !A.loop;
+  const fr = A.frames[0]; renderPose(fr[0], fr[1], fr[2], fr[4] || null);
+}
+function stepAnim(){
+  if (!play.anim){ playAnim('idle'); return; }
+  if (--play.af > 0) return;                        // hold current frame
+  play.ai++;
+  if (play.ai >= play.anim.length){
+    if (play.animLoop) play.ai = 0;
+    else { play.acting = false; playAnim(play.animNext); return; }
+  }
+  const fr = play.anim[play.ai]; play.af = fr[3]; renderPose(fr[0], fr[1], fr[2], fr[4] || null);
+}
 function setMascotState(st){
   if (play.on) return;                 // physics owns the body in play mode
   if (st === mascotState) return;
@@ -766,29 +845,12 @@ function scheduleBlink(){
     scheduleBlink();
   }, 2600 + Math.random()*3400);
 }
-const MLINES = {
-  idle:    ["point me at a folder", "what are we building?", "I love a good loop",
-            "ready when you are", "the night shift awaits"],
-  working: ["on it…", "tinkering…", "tests, then commit", "I got this",
-            "compiling thoughts…"],
-  happy:   ["shipped it! 🎉", "goal complete!", "another one down", "we did it!"],
-  sleep:   ["zzz…", "wake me with a goal", "(snoozing)"],
-};
-function sayBubble(text){
-  const b = $('bubble'); b.textContent = text; b.classList.add('show');
-  clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('show'), 2800);
-}
 function pokeMascot(){
+  if (play.on){ playAnim(pick(['cheer','floss','dance','joy'])); return; }   // boop → goofs off
   const m = $('mascot');
-  if (play.on){ play.vy = -13; play.grounded = false; }   // boop → little jump
-  else { m.classList.remove('poke'); void m.offsetWidth; m.classList.add('poke'); }
-  const key = play.on ? (mascotWorkingHint ? 'working' : 'idle') : mascotState;
-  const pool = MLINES[key] || MLINES.idle;
-  sayBubble(pool[Math.floor(Math.random()*pool.length)]);
-  // a cosmetic XP sparkle — pure delight, the real XP lives server-side
-  const pop = document.createElement('div');
-  pop.className = 'xppop'; pop.textContent = '+1';
-  m.appendChild(pop); setTimeout(() => pop.remove(), 900);
+  m.classList.remove('poke'); void m.offsetWidth; m.classList.add('poke');
+  setMascotArt('happy');
+  setTimeout(() => { if (!play.on) setMascotArt(mascotState === 'sleep' ? 'sleep' : 'idle'); }, 700);
 }
 $('mascot').onclick = pokeMascot;
 $('mascot').onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pokeMascot(); } };
@@ -833,38 +895,25 @@ function perchOf(p){
   return {tx, ty};
 }
 
-/* ----- reactions: read a card's verdict/flags and emote about it ----- */
+/* ----- reactions: read a card's verdict/flags and act it out (no words) ----- */
 function moodOf(el){
   if (el.querySelector('.verdict.ok')) return 'happy';
   if (el.querySelector('.verdict.bad')) return 'sad';
   if (el.querySelector('.errblock, .flag.bad, .flag.warn')) return 'confused';
   return 'read';                                                   // plain card / live code
 }
-const REACT_LINE = {
-  happy:    ['passed! ✓', 'nice one', 'clean!', 'it works!', 'love it'],
-  sad:      ['failed…', 'oof', 'not yet', 'aw, red', 'so close'],
-  confused: ['huh?', "what's this?", 'wait…', 'let me re-read', 'hmm?'],
-  read:     ['reading…', "let's see", 'scanning…', 'interesting', 'mm-hmm'],
-};
-function emote(ch, color){
-  const e = document.createElement('div'); e.className = 'emote'; e.textContent = ch;
-  if (color) e.style.color = color;
-  $('mascot').appendChild(e); setTimeout(() => e.remove(), 1100);
-}
 function doReact(el){
   const mood = moodOf(el);
-  setMascotArt(mood);
-  play.reactUntil = Date.now() + 1700;
-  if (mood === 'happy'){ emote('♥', 'var(--pink)'); play.vy = -8.5; play.grounded = false; }
-  else if (mood === 'sad'){ emote('💧'); play.droop = 1; }
-  else if (mood === 'confused'){ emote('?'); play.tilt = 1; }
-  else if (Math.random() < 0.5){ emote('?'); }
-  if (Math.random() < 0.6){ const p = REACT_LINE[mood]; sayBubble(p[Math.floor(Math.random()*p.length)]); }
+  if (mood === 'happy') playAnim(pick(['cheer','dance','floss','joy']));   // never the same yay twice
+  else if (mood === 'sad'){ play.droop = 1; playAnim(pick(['slump','facepalm'])); }
+  else if (mood === 'confused'){ play.tilt = 1; playAnim(pick(['scratch','think'])); }
+  else playAnim('think');                                                  // reading / inspecting
 }
 
 /* ----- the brain: pick where to go and what to do next ----- */
 function looperThink(){
   if (!play.on) return;
+  if (play.acting){ scheduleThink(1200); return; }        // let a routine finish first
   const ps = platforms();
   if (!ps.length){ scheduleThink(2500); return; }
   const keys = ps.map(p => p.key);
@@ -872,16 +921,18 @@ function looperThink(){
   seenKeys = new Set(keys);
   const cur = ps.findIndex(p => p.key === play.targetKey);
 
-  // mostly he just rests and watches; he only ambles over now and then, and
-  // perks up to check a card that's brand-new
+  // mostly he rests and watches; ambles over now and then; perks up for new
+  // cards; and every so often just goofs off where he's standing
   let key = play.targetKey, move = false;
   if (fresh.length && Math.random() < 0.7){               // new card landed — go look
     key = fresh[fresh.length-1]; move = true;
   } else {
     const roll = Math.random();
-    if (roll < 0.62){ /* rest — stay put and watch */ }
-    else if (roll < 0.80 && cur > 0){ key = ps[cur-1].key; move = true; }                 // up one
-    else if (roll < 0.94 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; } // down one
+    if (roll < 0.55){                                      // rest — sometimes amuse himself
+      if (Math.random() < 0.32) playAnim(pick(['soccer','bball','stretch','think','dance','floss']));
+    }
+    else if (roll < 0.74 && cur > 0){ key = ps[cur-1].key; move = true; }                 // up one
+    else if (roll < 0.92 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; } // down one
     else { key = ps[Math.floor(Math.random()*ps.length)].key; move = true; }              // rarely, elsewhere
   }
   if (move){ play.targetKey = key; play.pendingReact = true; }
@@ -904,9 +955,9 @@ function physicsStep(){
     else if (dy < -26){                                            // card above → a gentle hop up
       play.grounded = false; play.vy = -(5 + Math.min(5, Math.abs(dy)*0.045));
       play.vx = Math.max(-3.5, Math.min(3.5, dx*0.05));
-    } else {                                                       // close → glide smoothly, no hopping
-      play.x += dx*0.10; play.y += dy*0.10;
-      if (Math.abs(dx) < 1.5 && Math.abs(dy) < 1.5 && play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
+    } else {                                                       // close → walk/glide smoothly
+      play.x += dx*0.12; play.y += dy*0.12;
+      if (Math.abs(dx) < 1.2 && Math.abs(dy) < 1.2 && play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
     }
   }
   if (!play.grounded){
@@ -919,25 +970,31 @@ function physicsStep(){
     }
   }
 
-  play.sx += (1-play.sx)*0.18; play.sy += (1-play.sy)*0.18;        // ease squash back
-  play.tilt += (0-play.tilt)*0.03; play.droop += (0-play.droop)*0.03;
-  if (play.reactUntil && Date.now() > play.reactUntil){ play.reactUntil = 0; setMascotArt('idle'); }
+  // ----- animate: locomotion while travelling, otherwise the current routine -----
+  const dxn = perch.tx - play.x, dyn = perch.ty - play.y;
+  const moving = !play.grounded || Math.abs(dxn) > 2.5 || Math.abs(dyn) > 2.5;
+  if (moving){
+    play.anim = null; play.acting = false;                         // travel overrides routines
+    if (!play.grounded) renderPose(play.vy < 0 ? 'focus' : 'surprise', play.vy < 0 ? 'up' : 'out', 'tuck', null);
+    else { play.walkT++; const wf = (play.walkT >> 2) & 1; renderPose('focus', wf?'swingA':'swingB', wf?'walkA':'walkB', null); }
+  } else {
+    stepAnim();
+  }
 
+  // ----- ease squash/tilt/droop + compose the transform -----
+  play.sx += (1-play.sx)*0.18; play.sy += (1-play.sy)*0.18;
+  play.tilt += (0-play.tilt)*0.02; play.droop += (0-play.droop)*0.02;
   let bob = 0, rot = 0;
-  if (play.grounded){
+  if (play.grounded && !moving){
     const sad = play.droop > 0.2;
     bobPhase += sad ? 0.03 : 0.045;
-    bob = Math.sin(bobPhase) * (sad ? 0.7 : 1.1) + play.droop * 4;        // gentle breathing; sadness sinks
-    if (!play.reactUntil && Math.random() < 0.003){                       // occasional blink
-      setMascotArt('blink'); setTimeout(() => { if (play.on && !play.reactUntil) setMascotArt('idle'); }, 150);
-    }
+    bob = Math.sin(bobPhase) * (sad ? 0.6 : 1.0) + play.droop * 4;        // breathing; sadness sinks
   }
-  rot += Math.sin(play.t * 0.35) * 7 * play.tilt;                         // confused head-tilt
+  rot += Math.sin(play.t * 0.35) * 6 * play.tilt;                         // confused head-tilt
   $('mascot').style.transform =
     `translate(${play.x.toFixed(1)}px,${(play.y+bob).toFixed(1)}px) rotate(${rot.toFixed(2)}deg) scale(${play.sx.toFixed(3)},${play.sy.toFixed(3)})`;
   play.raf = requestAnimationFrame(physicsStep);
 }
-function curFace(){ return play.tilt>0.2?'confused':play.droop>0.2?'sad':'idle'; }
 
 function enterPlay(){
   if (play.on) return;
@@ -945,10 +1002,11 @@ function enterPlay(){
   const start = ps[ps.length-1], perch = perchOf(start);
   play.on = true; play.t = 0; bobPhase = 0;
   play.targetKey = start.key; play.pendingReact = true;
-  play.tilt = 0; play.droop = 0; play.reactUntil = 0;
+  play.tilt = 0; play.droop = 0;
   play.x = perch.tx; play.y = perch.ty - 120; play.vx = 0; play.vy = 0; play.grounded = false;
+  play.anim = null; play.acting = false; play.walkT = 0; lastSig = '';
   const m = $('mascot'); m.classList.add('play'); m.classList.remove('idle','working','happy','sleep');
-  setMascotArt('idle');
+  playAnim('idle');
   seenKeys = new Set(ps.map(p => p.key));
   cancelAnimationFrame(play.raf); play.raf = requestAnimationFrame(physicsStep);
   scheduleThink(2500);
@@ -961,7 +1019,7 @@ function leavePlay(){
   setMascotFromStats();
 }
 function updatePlayMode(){
-  const want = interactiveOn && document.body.className === 'run' && platforms().length > 0;
+  const want = interactiveOn && document.body.classList.contains('run') && platforms().length > 0;
   if (want) enterPlay(); else leavePlay();
 }
 $('playBtn').onclick = () => {
@@ -969,7 +1027,6 @@ $('playBtn').onclick = () => {
   try{ localStorage.setItem('9xf-looper', interactiveOn ? 'on' : 'off'); }catch(e){}
   $('playBtn').classList.toggle('on', interactiveOn);
   updatePlayMode();
-  if (!interactiveOn) sayBubble('back to my corner!');
 };
 function initInteractive(){
   let v = null; try{ v = localStorage.getItem('9xf-looper'); }catch(e){}
@@ -979,6 +1036,7 @@ function initInteractive(){
 
 /* ---------- diff register: collapse for a clean, single-column read ---------- */
 function setDiff(show){
+  diffShown = show;
   document.body.classList.toggle('nodiff', !show);
   $('diffBtn').classList.toggle('on', show);
   try{ localStorage.setItem('9xf-diff', show ? 'on' : 'off'); }catch(e){}
@@ -989,9 +1047,9 @@ function initDiff(){
   let v = null; try{ v = localStorage.getItem('9xf-diff'); }catch(e){}
   setDiff(v !== 'off');                                          // default shown
 }
-// celebrate when the shipped-goal count ticks up
+// celebrate when the shipped-goal count ticks up (on the home screen)
 function checkCelebrate(goals){
-  if (prevGoals !== null && goals > prevGoals){ setMascotState('happy'); sayBubble('goal complete! 🎉'); }
+  if (prevGoals !== null && goals > prevGoals) setMascotState('happy');
   prevGoals = goals;
 }
 
@@ -1157,7 +1215,7 @@ async function tickRun(){
   if (r.finished) finishedSeen.add(current);
   if (play.on){
     document.documentElement.style.setProperty('--mascot-tip', running ? 'var(--green)' : 'var(--accent)');
-    if (freshFinish){ play.vy = -17; play.vx = (Math.random()*6 - 3); play.grounded = false; sayBubble('shipped it! 🎉'); }
+    if (freshFinish) playAnim('cheer');
   } else if (r.finished){ setMascotState('happy'); } else { setMascotFromStats(); }
 
   const sb = $('statusbar');
